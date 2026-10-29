@@ -1,0 +1,425 @@
+{
+  "schema": "modelproof.release/1",
+  "generated_at": "2026-10-29T16:22:50.449117+00:00",
+  "engine_version": "0.2.0",
+  "host": {
+    "python": "3.13.5",
+    "platform": "Linux-6.18.54-instabox-x86_64-with-glibc2.41"
+  },
+  "qualifier_run_id": "7230f90d554d4f00",
+  "mandatory_run_gates": [
+    "case_completeness",
+    "evidence_integrity",
+    "sandbox_enforced",
+    "local_only_inference",
+    "model_identity"
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "title": "Repository and installation",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "environment installs and initializes: python>=3.12=PASS; dependencies=PASS; database=PASS; artifact_storage=PASS",
+      "procedure": "run doctor checks (python, dependencies, database, storage) against the live home; container-runtime availability is deferred to G5",
+      "preconditions": "repository present; Python >= 3.12",
+      "evidence": [
+        {
+          "ref": "doctor",
+          "detail": "python>=3.12: PASS \u2014 Python 3.13.5 at /data/workspace/modelproof/.venv/bin/python"
+        },
+        {
+          "ref": "doctor",
+          "detail": "dependencies: PASS \u2014 all engine dependencies importable"
+        },
+        {
+          "ref": "doctor",
+          "detail": "database: PASS \u2014 sqlite at /data/workspace/modelproof/.modelproof/modelproof.db; schema at 002_imported_runs.sql; newly applied: none"
+        },
+        {
+          "ref": "doctor",
+          "detail": "artifact_storage: PASS \u2014 /data/workspace/modelproof/.modelproof/artifacts is writable"
+        },
+        {
+          "ref": "doctor",
+          "detail": "docker_sandbox: PASS \u2014 29.8.2"
+        },
+        {
+          "ref": "doctor",
+          "detail": "sandbox_image_identity: PASS \u2014 python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159"
+        }
+      ]
+    },
+    {
+      "id": "G2",
+      "title": "Functional completeness",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "end-to-end pipeline (suite \u2192 generation \u2192 scoring \u2192 statistics \u2192 report) completed on a labeled fixture run",
+      "procedure": "fixture_replay run through the production engine; no separate demo code path exists",
+      "preconditions": "G1 passes",
+      "evidence": [
+        {
+          "ref": "artifacts/7230f90d554d4f00/summary.json",
+          "detail": "status=COMPLETED verdict=INSUFFICIENT_EVIDENCE cases=24/24"
+        },
+        {
+          "ref": "verdict_policy",
+          "detail": "fixture run capped at INSUFFICIENT_EVIDENCE \u2014 labeling enforced, not optional"
+        }
+      ]
+    },
+    {
+      "id": "G3",
+      "title": "Evaluation correctness",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "per-case outcomes reconcile with independently computed fixture expectations; aggregate metrics reconcile with per-case records",
+      "procedure": "compare per-case statuses against suite-recorded outcomes keyed by submission digest; recompute pass-rate numerator/denominator from case rows independently",
+      "preconditions": "G2 pass",
+      "evidence": [
+        {
+          "ref": "artifacts/7230f90d554d4f00/cases/*.json",
+          "detail": "24 case records compared"
+        },
+        {
+          "ref": "fixtures/recorded_outcomes.json",
+          "detail": "24 expected outcomes matched by digest"
+        },
+        {
+          "ref": "metric_reconciliation",
+          "detail": "numerator=18 denominator=24 metric_ok=True"
+        }
+      ]
+    },
+    {
+      "id": "G4",
+      "title": "Statistical correctness",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "statistical routines match independently established reference cases",
+      "procedure": "cross-check Wilson intervals against an independent in-gate derivation; check exact McNemar against the closed-form binomial; zero-denominator policy",
+      "preconditions": "none",
+      "evidence": [
+        {
+          "ref": "reference",
+          "detail": "wilson(0/10) = [0.000000, 0.277533] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(5/10) = [0.236593, 0.763407] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(10/10) = [0.722467, 1.000000] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(3/7) = [0.158220, 0.749542] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(81/263) = [0.255289, 0.366210] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(0/24) = [0.000000, 0.137976] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(18/24) = [0.551006, 0.880006] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "wilson(24/24) = [0.862024, 1.000000] matches independent derivation"
+        },
+        {
+          "ref": "reference",
+          "detail": "mcnemar_exact(1,9) = 0.021484375 matches exact binomial value"
+        }
+      ]
+    },
+    {
+      "id": "G5",
+      "title": "Sandbox security",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "Docker container isolation and resource limits verified against live daemon: network=none, cap-drop ALL, no-new-privileges, read-only rootfs, non-root user, memory/cpu/pid caps, timeout enforcement, output bounds",
+      "procedure": "verify docker restrictions via `docker inspect` before container start; execute adversarial sandbox tests (network, fork, filesystem, output caps)",
+      "preconditions": "Docker daemon with the python:3.12-slim image",
+      "evidence": [
+        {
+          "ref": "fallback refusal",
+          "detail": "UnavailableBackend raises SandboxUnavailableError; zero host subprocess fallback"
+        },
+        {
+          "ref": "container inspect",
+          "detail": "verified before start: network_mode=none, readonly_rootfs=True, cap_drop=['ALL'], user=65534:65534"
+        },
+        {
+          "ref": "network isolation",
+          "detail": "network egress blocked inside container (--network none)"
+        },
+        {
+          "ref": "filesystem isolation",
+          "detail": "root filesystem immutable (--read-only); task writes blocked outside scratch"
+        },
+        {
+          "ref": "wall-clock timeout",
+          "detail": "infinite loop terminated after timeout (duration_ms > 3000)"
+        },
+        {
+          "ref": "process limit",
+          "detail": "pids-limit enforced; fork bomb throttled/blocked"
+        },
+        {
+          "ref": "output cap",
+          "detail": "stdout bounded to 64000 bytes; output_truncated=True"
+        }
+      ]
+    },
+    {
+      "id": "G6",
+      "title": "Local-only operation",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "remote inference endpoints (public IP, private-range IP, IPv4-mapped non-loopback, DNS-lookalike) are refused before any byte leaves the process; all loopback spellings are accepted",
+      "procedure": "attempt endpoint validation on remote/lookalike URLs \u2014 each must raise EndpointPolicyError; loopback spellings (IPv4, IPv6, IPv4-mapped loopback) must validate",
+      "preconditions": "none (offline-safe)",
+      "evidence": [
+        {
+          "ref": "refusal",
+          "detail": "https://example.com/v1/chat/completions refused: refusing non-local inference host 'example.com'; only loopback literals or 'localhost' are accepted"
+        },
+        {
+          "ref": "refusal",
+          "detail": "http://10.0.0.5:8080 refused: refusing non-local inference host '10.0.0.5'; only loopback literals or 'localhost' are accepted"
+        },
+        {
+          "ref": "refusal",
+          "detail": "http://[::ffff:10.0.0.5]:8080 refused: refusing non-local inference host '::ffff:10.0.0.5'; only loopback literals or 'localhost' are accepted"
+        },
+        {
+          "ref": "refusal",
+          "detail": "http://localhost.evil:8080 refused: refusing non-local inference host 'localhost.evil'; only loopback literals or 'localhost' are accepted"
+        },
+        {
+          "ref": "accept",
+          "detail": "loopback endpoint accepted: http://127.0.0.1:8080"
+        },
+        {
+          "ref": "accept",
+          "detail": "loopback endpoint accepted: http://::1:8080"
+        },
+        {
+          "ref": "accept",
+          "detail": "loopback endpoint accepted: http://::ffff:127.0.0.1:8080"
+        }
+      ]
+    },
+    {
+      "id": "G7",
+      "title": "Provenance and evidence integrity",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "all artifact hashes recomputed from disk match the manifest; a byte-level tamper probe on a scratch copy was detected",
+      "procedure": "verify_run (recompute every artifact digest + config digest); tamper probe on scratch copy",
+      "preconditions": "G2 pass",
+      "evidence": [
+        {
+          "ref": "artifacts/7230f90d554d4f00/checksums.json",
+          "detail": "checked=78 artifacts"
+        },
+        {
+          "ref": "tamper probe",
+          "detail": "flipped byte in scratch copy detected as mismatch"
+        }
+      ]
+    },
+    {
+      "id": "G8",
+      "title": "Failure and recovery",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "crashes and malformed outputs never produce misleading successful runs: stale runs recover to INCOMPLETE, unusable outputs become recorded model errors capped below PASS",
+      "procedure": "fault injection in an isolated probe home: stale-heartbeat recovery + empty fixture outputs",
+      "preconditions": "bundled suite available",
+      "evidence": [
+        {
+          "ref": "crash recovery",
+          "detail": "stale RUNNING run recovered to INCOMPLETE with prior case records preserved"
+        },
+        {
+          "ref": "malformed output handling",
+          "detail": "empty scripted outputs \u2192 24 MODEL_ERROR/INVALID_OUTPUT cases, verdict=INSUFFICIENT_EVIDENCE (never PASS)"
+        }
+      ]
+    },
+    {
+      "id": "G9",
+      "title": "Reproducibility",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "evidence bundle round-trips: export \u2192 independent hash verification \u2192 import \u2192 re-verification, with the verifier independent of the original inference process",
+      "procedure": "export evidence bundle; verify hashes; import under a new id; re-verify",
+      "preconditions": "G2 pass",
+      "evidence": [
+        {
+          "ref": "bundle",
+          "detail": "78 artifacts verified in-bundle"
+        },
+        {
+          "ref": "import",
+          "detail": "imported as 'g9-imported', 79 artifacts re-verified"
+        },
+        {
+          "ref": "rename integrity",
+          "detail": "config/summary rewritten consistently: True"
+        }
+      ]
+    },
+    {
+      "id": "G10",
+      "title": "API and UI",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "typed API endpoints behave consistently: health, model registration, run creation, report retrieval, evidence verification, stable error codes",
+      "procedure": "exercise the versioned API end-to-end against a fresh probe home",
+      "preconditions": "none",
+      "evidence": [
+        {
+          "ref": "GET /health",
+          "detail": "HTTP 200"
+        },
+        {
+          "ref": "POST /models",
+          "detail": "HTTP 201"
+        },
+        {
+          "ref": "POST /runs",
+          "detail": "HTTP 202"
+        },
+        {
+          "ref": "GET /runs/{id}/report",
+          "detail": "HTTP 200"
+        },
+        {
+          "ref": "POST /runs/{id}/verify",
+          "detail": "HTTP 200 verified=True"
+        },
+        {
+          "ref": "error semantics",
+          "detail": "unknown endpoint \u2192 HTTP 404 (stable errors)"
+        }
+      ]
+    },
+    {
+      "id": "G11",
+      "title": "Documentation and maintainability",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "required documentation present",
+      "procedure": "check required docs exist and are non-trivial",
+      "preconditions": "none",
+      "evidence": [
+        {
+          "ref": "README.md",
+          "detail": "present (7946 bytes)"
+        },
+        {
+          "ref": "SECURITY.md",
+          "detail": "present (1833 bytes)"
+        },
+        {
+          "ref": "docs/architecture.md",
+          "detail": "present (6336 bytes)"
+        },
+        {
+          "ref": "docs/threat-model.md",
+          "detail": "present (7392 bytes)"
+        },
+        {
+          "ref": "docs/evaluation-methodology.md",
+          "detail": "present (4909 bytes)"
+        },
+        {
+          "ref": "docs/provenance-policy.md",
+          "detail": "present (5304 bytes)"
+        },
+        {
+          "ref": "docs/reproducibility.md",
+          "detail": "present (4078 bytes)"
+        },
+        {
+          "ref": "docs/IMPLEMENTATION_AUDIT.md",
+          "detail": "present (5356 bytes)"
+        },
+        {
+          "ref": "docs/RELEASE_GATES.md",
+          "detail": "present (3805 bytes)"
+        }
+      ]
+    },
+    {
+      "id": "G12",
+      "title": "Release qualification",
+      "mandatory": true,
+      "status": "PASS",
+      "detail": "all mandatory gates passed with recorded evidence",
+      "procedure": "aggregate mandatory gate outcomes (G1\u2013G11)",
+      "preconditions": "G1\u2013G11 executed",
+      "evidence": [
+        {
+          "ref": "G1",
+          "detail": "PASS: Repository and installation"
+        },
+        {
+          "ref": "G2",
+          "detail": "PASS: Functional completeness"
+        },
+        {
+          "ref": "G3",
+          "detail": "PASS: Evaluation correctness"
+        },
+        {
+          "ref": "G4",
+          "detail": "PASS: Statistical correctness"
+        },
+        {
+          "ref": "G5",
+          "detail": "PASS: Sandbox security"
+        },
+        {
+          "ref": "G6",
+          "detail": "PASS: Local-only operation"
+        },
+        {
+          "ref": "G7",
+          "detail": "PASS: Provenance and evidence integrity"
+        },
+        {
+          "ref": "G8",
+          "detail": "PASS: Failure and recovery"
+        },
+        {
+          "ref": "G9",
+          "detail": "PASS: Reproducibility"
+        },
+        {
+          "ref": "G10",
+          "detail": "PASS: API and UI"
+        },
+        {
+          "ref": "G11",
+          "detail": "PASS: Documentation and maintainability"
+        }
+      ]
+    }
+  ],
+  "verdict": "PASS",
+  "notes": [
+    "A PASS verdict certifies run integrity ONLY \u2014 never model capability.",
+    "Gates are environment-scoped: this report describes THIS machine as of generated_at.",
+    "A BLOCKED gate means 'not verifiable here', which is not a pass and not a fail."
+  ]
+}
