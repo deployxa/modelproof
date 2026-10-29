@@ -4,6 +4,7 @@ Everything ModelProof writes lives under one root directory (default:
 `./.modelproof`, overridable via MODELFOROOT_HOME or --home). The web API and
 CLI share this configuration; there is exactly one engine.
 """
+
 from __future__ import annotations
 
 import os
@@ -22,7 +23,7 @@ def default_home() -> Path:
 
 class Settings(BaseModel):
     home: Path = Field(default_factory=default_home)
-    api_host: str = "127.0.0.1"   # spec §10.4: loopback by default, always
+    api_host: str = "127.0.0.1"  # spec §10.4: loopback by default, always
     api_port: int = 8899
     db_name: str = "modelproof.db"
     inference_timeout_s: float = 180.0

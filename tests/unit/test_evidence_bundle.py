@@ -1,5 +1,6 @@
 """Evidence-bundle tests: export → verify → import round-trip, tamper refusal,
 zip-slip defense, and honest labeling of imported runs."""
+
 from __future__ import annotations
 
 import io
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from modelproof.artifacts.store import ArtifactStore
+from modelproof.errors import IntegrityError, InvalidInputError
 from modelproof.evidence.bundle import (
     BUNDLE_SCHEMA,
     export_run_bundle,
@@ -17,7 +19,6 @@ from modelproof.evidence.bundle import (
     read_bundle_meta,
     verify_bundle,
 )
-from modelproof.errors import IntegrityError, InvalidInputError
 from modelproof.runner.engine import EvaluationEngine
 
 
@@ -27,8 +28,10 @@ def completed_run(engine: EvaluationEngine, fixture_outputs: Path) -> str:
     # from the registry so the run uses exactly that suite.
     suite_path = Path(engine.db.execute("SELECT path FROM suites LIMIT 1").fetchone()["path"])
     run_id = engine.create_run(
-        model_name="local-fixture", suite_path=suite_path,
-        execution_mode="fixture_replay", fixture_outputs_path=fixture_outputs,
+        model_name="local-fixture",
+        suite_path=suite_path,
+        execution_mode="fixture_replay",
+        fixture_outputs_path=fixture_outputs,
     )
     engine.start_run(run_id)
     return run_id
@@ -62,13 +65,16 @@ def test_tampered_bundle_is_refused(settings, completed_run: str, tmp_path: Path
     raw = bundle.read_bytes()
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
         members = tar.getmembers()
-        target = next(m for m in members if m.name == f"artifacts/summary.json")
+        target = next(m for m in members if m.name == "artifacts/summary.json")
         data = tar.extractfile(target).read()
     tampered = bytearray(data)
     tampered[0] ^= 0xFF
     # rebuild the tar with the tampered member (valid container, bad content)
     buf = io.BytesIO()
-    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as src, tarfile.open(fileobj=buf, mode="w:gz") as dst:
+    with (
+        tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as src,
+        tarfile.open(fileobj=buf, mode="w:gz") as dst,
+    ):
         for m in src.getmembers():
             content = bytes(tampered) if m.name == target.name else src.extractfile(m).read()
             info = tarfile.TarInfo(name=m.name)

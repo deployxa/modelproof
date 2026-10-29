@@ -1,7 +1,8 @@
 """Cross-suite overlap detection: flags overlap, never asserts contamination."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from modelproof.suites.leakage import cross_suite_overlap
 
@@ -20,8 +21,18 @@ class _Task:
 
 
 def test_identical_content_is_flagged():
-    a = [_Task(_Spec("t1", "Write a function that reverses a list."), starter="def rev(xs):\n    pass\n")]
-    b = [_Task(_Spec("x1", "Write a function that reverses a list."), starter="def rev(xs):\n    pass\n")]
+    a = [
+        _Task(
+            _Spec("t1", "Write a function that reverses a list."),
+            starter="def rev(xs):\n    pass\n",
+        )
+    ]
+    b = [
+        _Task(
+            _Spec("x1", "Write a function that reverses a list."),
+            starter="def rev(xs):\n    pass\n",
+        )
+    ]
     rep = cross_suite_overlap(a, b, suite_a="a", suite_b="b")
     assert rep.status() == "POTENTIAL_OVERLAP_FOUND"
     assert rep.exact_hash_overlaps and rep.normalized_overlaps
@@ -29,8 +40,18 @@ def test_identical_content_is_flagged():
 
 
 def test_distinct_content_is_checked_not_certified():
-    a = [_Task(_Spec("t1", "Parse a CSV file and count distinct rows."), starter="def go(p):\n    pass\n")]
-    b = [_Task(_Spec("x1", "Implement binary search over a sorted array."), starter="def bs(xs):\n    pass\n")]
+    a = [
+        _Task(
+            _Spec("t1", "Parse a CSV file and count distinct rows."),
+            starter="def go(p):\n    pass\n",
+        )
+    ]
+    b = [
+        _Task(
+            _Spec("x1", "Implement binary search over a sorted array."),
+            starter="def bs(xs):\n    pass\n",
+        )
+    ]
     rep = cross_suite_overlap(a, b)
     assert rep.status() == "OVERLAP_CHECKED"
     assert not rep.exact_hash_overlaps and not rep.normalized_overlaps

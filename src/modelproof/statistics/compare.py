@@ -25,6 +25,7 @@ resampling assumptions.
 
 Reference values are pinned in tests/unit/test_compare.py.
 """
+
 from __future__ import annotations
 
 import math
@@ -46,7 +47,7 @@ def _binom_pmf_ge_ceil(n: int, k: int) -> float:
     total = 0.0
     for i in range(k, n + 1):
         total += math.comb(n, i)
-    return total / (2 ** n)
+    return total / (2**n)
 
 
 def mcnemar_exact(b: int, c: int) -> float | None:
@@ -67,7 +68,7 @@ def mcnemar_exact(b: int, c: int) -> float | None:
     if n == 0:
         return None
     k = min(b, c)
-    p = 2.0 * sum(math.comb(n, i) for i in range(0, k + 1)) / (2 ** n)
+    p = 2.0 * sum(math.comb(n, i) for i in range(0, k + 1)) / (2**n)
     return min(1.0, p)
 
 
@@ -131,9 +132,9 @@ _COMPAT_FIELDS = (
 )
 
 
-def comparison_compatibility(config_a: dict, config_b: dict, *,
-                             summary_a: dict | None = None,
-                             summary_b: dict | None = None) -> dict:
+def comparison_compatibility(
+    config_a: dict, config_b: dict, *, summary_a: dict | None = None, summary_b: dict | None = None
+) -> dict:
     """Decide whether two runs are protocol-compatible for comparison (§8.3).
 
     Checked: suite identity + version + CONTENT hash, generation settings,
@@ -160,7 +161,9 @@ def comparison_compatibility(config_a: dict, config_b: dict, *,
                 "may differ — recorded per run for exactly this reason"
             )
     if config_a.get("is_fixture") or config_b.get("is_fixture"):
-        warnings.append("fixture runs are replays; a comparison involving a fixture run supports no claim about any model")
+        warnings.append(
+            "fixture runs are replays; a comparison involving a fixture run supports no claim about any model"
+        )
     if config_a.get("task_ids") is not None and config_b.get("task_ids") is not None:
         shared = set(config_a["task_ids"]) & set(config_b["task_ids"])
         only_a = set(config_a["task_ids"]) - shared
@@ -191,7 +194,7 @@ def repeat_variability(per_repeat_passed: list[int], n_tasks: int) -> dict:
         "min_pass_rate": min(rates),
         "max_pass_rate": max(rates),
         "note": "repeats share the same tasks; variability reflects decoding "
-                "non-determinism and protocol stability, NOT sampling error over new tasks",
+        "non-determinism and protocol stability, NOT sampling error over new tasks",
     }
     if len(rates) > 1:
         out["stdev_pass_rate"] = stdev(rates)
@@ -221,7 +224,8 @@ def compare_runs(
     if not compat["compatible"]:
         return {
             "comparison_version": COMPARISON_VERSION,
-            "run_a": run_a_id, "run_b": run_b_id,
+            "run_a": run_a_id,
+            "run_b": run_b_id,
             "compatible": False,
             "refusal": "runs are not protocol-compatible; no comparison computed",
             **compat,
@@ -241,8 +245,10 @@ def compare_runs(
 
     p_value = mcnemar_exact(len(a_only), len(b_only))
     boot = paired_bootstrap_diff_ci(
-        [a_pass[t] for t in paired], [b_pass[t] for t in paired],
-        n_resamples=n_resamples, seed=seed,
+        [a_pass[t] for t in paired],
+        [b_pass[t] for t in paired],
+        n_resamples=n_resamples,
+        seed=seed,
     )
     rate_a = (sum(1 for t in paired if a_pass[t]) / len(paired)) if paired else None
     rate_b = (sum(1 for t in paired if b_pass[t]) / len(paired)) if paired else None
@@ -255,22 +261,27 @@ def compare_runs(
         "repeated comparisons across many model pairs inflate false-positive "
         "risk (multiple comparisons); no correction is applied here — interpret "
         "p-values accordingly",
-        "neither run's suite provenance is certified as independent of any "
-        "model's training corpus",
+        "neither run's suite provenance is certified as independent of any model's training corpus",
     ]
     if dropped:
-        caveats.append(f"{dropped} shared task(s) lacked a valid outcome on one side and were excluded")
+        caveats.append(
+            f"{dropped} shared task(s) lacked a valid outcome on one side and were excluded"
+        )
 
     return {
         "comparison_version": COMPARISON_VERSION,
-        "run_a": run_a_id, "run_b": run_b_id,
+        "run_a": run_a_id,
+        "run_b": run_b_id,
         "compatible": True,
         "compatibility": compat,
         "n_paired_tasks": len(paired),
         "n_excluded_tasks": dropped,
-        "pass_rate_a": rate_a, "pass_rate_b": rate_b,
-        "both_passed": both_pass, "both_failed": both_fail,
-        "a_only_passed": sorted(a_only), "b_only_passed": sorted(b_only),
+        "pass_rate_a": rate_a,
+        "pass_rate_b": rate_b,
+        "both_passed": both_pass,
+        "both_failed": both_fail,
+        "a_only_passed": sorted(a_only),
+        "b_only_passed": sorted(b_only),
         "discordant": {"a_passed_b_failed": len(a_only), "a_failed_b_passed": len(b_only)},
         "mcnemar_exact_p": p_value,
         "bootstrap": boot,

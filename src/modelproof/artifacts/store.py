@@ -14,6 +14,7 @@ Layout under <home>/artifacts/<run_id>/:
 All writes are atomic (temp file + rename). checksums.json is written last at
 finalization; `verify` recomputes every digest from disk.
 """
+
 from __future__ import annotations
 
 import json
@@ -44,7 +45,9 @@ class ArtifactStore:
         return self.write(run_id, rel_path, text.encode("utf-8"))
 
     def write_json(self, run_id: str, rel_path: str, obj) -> dict:
-        return self.write_text(run_id, rel_path, json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+        return self.write_text(
+            run_id, rel_path, json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        )
 
     def read(self, run_id: str, rel_path: str) -> bytes:
         path = self.run_dir(run_id) / rel_path
@@ -78,7 +81,12 @@ class ArtifactStore:
         if manifest is None:
             cpath = base / "checksums.json"
             if not cpath.is_file():
-                return {"ok": False, "missing": [], "mismatched": [], "error": "checksums.json not found"}
+                return {
+                    "ok": False,
+                    "missing": [],
+                    "mismatched": [],
+                    "error": "checksums.json not found",
+                }
             manifest = json.loads(cpath.read_text(encoding="utf-8"))
         expected = manifest.get("artifacts", {})
         missing, mismatched, checked = [], [], 0
@@ -91,4 +99,9 @@ class ArtifactStore:
             checked += 1
             if sha256_bytes(data) != meta.get("sha256"):
                 mismatched.append(rel)
-        return {"ok": not missing and not mismatched, "missing": missing, "mismatched": mismatched, "checked": checked}
+        return {
+            "ok": not missing and not mismatched,
+            "missing": missing,
+            "mismatched": mismatched,
+            "checked": checked,
+        }

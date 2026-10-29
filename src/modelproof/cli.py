@@ -23,6 +23,7 @@ Documented additions (justified by the implementation):
 Exit codes: 0 ok · 2 invalid input · 3 evaluation failed · 4 integrity
 failure · 5 infrastructure error.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,14 +35,16 @@ import typer
 
 from .config import Settings
 from .doctor import doctor_summary, run_checks
-from .errors import ModelProofError, EXIT_INFRASTRUCTURE_ERROR, EXIT_INVALID_INPUT
-from .hashing import atomic_write_json
+from .errors import EXIT_INFRASTRUCTURE_ERROR, EXIT_INVALID_INPUT, ModelProofError
 from .models.adapter import validate_endpoint
-from .models.registry import build_weights_manifest, get_model, register_model
+from .models.registry import build_weights_manifest, register_model
 from .suites.loader import load_suite, register_suite
-from .statistics.stats import aggregate
 
-app = typer.Typer(no_args_is_help=True, add_completion=False, help="ModelProof — local-first, evidence-first evaluation lab.")
+app = typer.Typer(
+    no_args_is_help=True,
+    add_completion=False,
+    help="ModelProof — local-first, evidence-first evaluation lab.",
+)
 suite_app = typer.Typer(no_args_is_help=True, help="Evaluation suite operations.")
 model_app = typer.Typer(no_args_is_help=True, help="Local model registry operations.")
 run_app = typer.Typer(no_args_is_help=True, help="Evaluation run operations.")
@@ -76,7 +79,9 @@ def _fail(exc: ModelProofError) -> None:
 @app.command()
 def doctor(
     ctx: typer.Context,
-    home: Path = typer.Option(None, "--home", help="ModelProof home directory (default ./.modelproof)"),
+    home: Path = typer.Option(
+        None, "--home", help="ModelProof home directory (default ./.modelproof)"
+    ),
 ):
     """Check Python, dependencies, database, storage, Docker sandbox, endpoints."""
     settings = _settings()
@@ -107,7 +112,9 @@ def suite_list():
 @suite_app.command("validate")
 def suite_validate(
     path: Path = typer.Argument(..., help="Path to the suite directory"),
-    register: bool = typer.Option(True, "--register/--no-register", help="Register the suite after validation"),
+    register: bool = typer.Option(
+        True, "--register/--no-register", help="Register the suite after validation"
+    ),
 ):
     """Validate a suite: schema, IDs, files, digests, leakage checks."""
     try:
@@ -121,8 +128,10 @@ def suite_validate(
     typer.echo(f"provenance : {m.provenance_status.value}")
     typer.echo(f"tasks      : {len(loaded.tasks)}")
     for t in loaded.tasks:
-        typer.echo(f"  - {t.spec.id:36s} {t.spec.category.value:16s} checks={len([l for l in t.checks.splitlines() if l.startswith('def check_')])}")
-    typer.echo(f"leakage    : {loaded.leakage.summary()}")
+        typer.echo(
+            f"  - {t.spec.id:36s} {t.spec.category.value:16s} checks={len([line for line in t.checks.splitlines() if line.startswith('def check_')])}"
+        )
+    typer.echo(f"leakage    : {loaded.leakage.summary() if loaded.leakage else 'skipped'}")
     typer.echo(f"content hash: {loaded.content_hash}")
     if register:
         eng = _engine()
@@ -133,10 +142,21 @@ def suite_validate(
 @model_app.command("register")
 def model_register(
     name: str = typer.Argument(..., help="Short model name used by `run`"),
-    endpoint: str = typer.Option(..., "--endpoint", "-e", help="Local inference endpoint (loopback only, e.g. http://127.0.0.1:8080)"),
-    weights_dir: Path = typer.Option(None, "--weights-dir", help="Local weights directory to hash and verify"),
-    server_model_id: str = typer.Option(None, "--server-model-id", help="Server-reported model id (declared, not verified)"),
-    notes: str = typer.Option(None, "--notes", help="User-declared notes (never presented as verified)"),
+    endpoint: str = typer.Option(
+        ...,
+        "--endpoint",
+        "-e",
+        help="Local inference endpoint (loopback only, e.g. http://127.0.0.1:8080)",
+    ),
+    weights_dir: Path = typer.Option(
+        None, "--weights-dir", help="Local weights directory to hash and verify"
+    ),
+    server_model_id: str = typer.Option(
+        None, "--server-model-id", help="Server-reported model id (declared, not verified)"
+    ),
+    notes: str = typer.Option(
+        None, "--notes", help="User-declared notes (never presented as verified)"
+    ),
 ):
     """Register a local model configuration (endpoint must be loopback)."""
     try:
@@ -146,17 +166,23 @@ def model_register(
         return
     try:
         record = register_model(
-            _engine().db, name=name, endpoint=parsed["url"], weights_dir=str(weights_dir) if weights_dir else None,
-            server_model_id=server_model_id, declared_notes=notes,
+            _engine().db,
+            name=name,
+            endpoint=parsed["url"],
+            weights_dir=str(weights_dir) if weights_dir else None,
+            server_model_id=server_model_id,
+            declared_notes=notes,
         )
     except ModelProofError as e:
         _fail(e)
         return
     typer.echo(f"registered model {record.name} @ {record.endpoint}")
     if record.weights_manifest:
-        typer.echo(f"  weights: {len(record.weights_manifest.files)} files, "
-                   f"{record.weights_manifest.total_bytes / 1e6:.1f} MB, "
-                   f"manifest {record.weights_manifest.manifest_hash[:16]}…")
+        typer.echo(
+            f"  weights: {len(record.weights_manifest.files)} files, "
+            f"{record.weights_manifest.total_bytes / 1e6:.1f} MB, "
+            f"manifest {record.weights_manifest.manifest_hash[:16]}…"
+        )
 
 
 @model_app.command("inspect")
@@ -188,10 +214,18 @@ def model_inspect(
 @run_app.command("start")
 def run_start(
     model: str = typer.Option(..., "--model", "-m", help="Registered model name"),
-    suite: str = typer.Option(..., "--suite", "-s", help="Path to the suite directory (or registered suite id)"),
-    task: list[str] = typer.Option(None, "--task", help="Restrict to specific task ids (repeatable)"),
-    mode: str = typer.Option("sandbox", "--mode", help="sandbox | fixture_replay (fixture = labeled demo only)"),
-    fixture_outputs: Path = typer.Option(None, "--fixture-outputs", help="Scripted outputs JSON for fixture_replay mode"),
+    suite: str = typer.Option(
+        ..., "--suite", "-s", help="Path to the suite directory (or registered suite id)"
+    ),
+    task: list[str] = typer.Option(
+        None, "--task", help="Restrict to specific task ids (repeatable)"
+    ),
+    mode: str = typer.Option(
+        "sandbox", "--mode", help="sandbox | fixture_replay (fixture = labeled demo only)"
+    ),
+    fixture_outputs: Path = typer.Option(
+        None, "--fixture-outputs", help="Scripted outputs JSON for fixture_replay mode"
+    ),
 ):
     """Start an evaluation run and execute it to completion (foreground)."""
     settings = _settings()
@@ -199,8 +233,11 @@ def run_start(
     try:
         eng = _engine(settings)
         run_id = eng.create_run(
-            model_name=model, suite_path=suite_path, execution_mode=mode,
-            task_ids=task, fixture_outputs_path=fixture_outputs,
+            model_name=model,
+            suite_path=suite_path,
+            execution_mode=mode,
+            task_ids=task,
+            fixture_outputs_path=fixture_outputs,
         )
     except ModelProofError as e:
         _fail(e)
@@ -239,9 +276,14 @@ def _print_summary(s: dict) -> None:
     typer.echo("")
     typer.echo(f"run        : {s['run_id']}  status={s['status']}  verdict={s['verdict']}")
     if s.get("is_fixture"):
-        typer.secho("FIXTURE RUN — replayed outcomes; supports no claim about any model.", fg=typer.colors.YELLOW)
-    typer.echo(f"pass rate  : {s.get('pass_rate') if s.get('pass_rate') is not None else '—'} "
-               f"({s.get('pass_rate_numerator')}/{s.get('pass_rate_denominator')} valid outcomes)")
+        typer.secho(
+            "FIXTURE RUN — replayed outcomes; supports no claim about any model.",
+            fg=typer.colors.YELLOW,
+        )
+    typer.echo(
+        f"pass rate  : {s.get('pass_rate') if s.get('pass_rate') is not None else '—'} "
+        f"({s.get('pass_rate_numerator')}/{s.get('pass_rate_denominator')} valid outcomes)"
+    )
     ci = s.get("wilson95")
     typer.echo(f"Wilson 95% : {'—' if ci is None else f'[{ci[0]:.4f}, {ci[1]:.4f}]'}")
     typer.echo(f"completion : {s.get('completion_rate')}")
@@ -259,7 +301,9 @@ def run_list():
         return
     for r in runs:
         fixture = " [FIXTURE]" if r["is_fixture"] else ""
-        typer.echo(f"{r['id']}  {r['status']:10s}  verdict={r['verdict'] or '—':22s} {r['model_name']}@{r['suite_id']}{fixture}")
+        typer.echo(
+            f"{r['id']}  {r['status']:10s}  verdict={r['verdict'] or '—':22s} {r['model_name']}@{r['suite_id']}{fixture}"
+        )
 
 
 @run_app.command("show")
@@ -351,7 +395,9 @@ def report_export(
 
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", "--host", help="Bind host. 127.0.0.1 by default for safety."),
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Bind host. 127.0.0.1 by default for safety."
+    ),
     port: int = typer.Option(8899, "--port"),
 ):
     """Run the local web dashboard (loopback by default; never expose without understanding the risk)."""
@@ -359,13 +405,17 @@ def serve(
         typer.secho(
             f"refusing to bind {host!r}: the dashboard serves evaluation evidence and must stay "
             "loopback by default. Set MODELPROOF_ALLOW_UNSAFE_HOST=1 to override deliberately.",
-            fg=typer.colors.RED, err=True,
+            fg=typer.colors.RED,
+            err=True,
         )
         import os as _os
 
         if not _os.environ.get("MODELPROOF_ALLOW_UNSAFE_HOST") == "1":
             raise typer.Exit(EXIT_INVALID_INPUT)
-        typer.secho("MODELPROOF_ALLOW_UNSAFE_HOST=1 — binding non-loopback at your explicit request.", fg=typer.colors.YELLOW)
+        typer.secho(
+            "MODELPROOF_ALLOW_UNSAFE_HOST=1 — binding non-loopback at your explicit request.",
+            fg=typer.colors.YELLOW,
+        )
     try:
         import uvicorn
 
@@ -388,7 +438,9 @@ def model_list():
 
     rows = _list(_engine().db)
     if not rows:
-        typer.echo("no models registered — run: modelproof model register <name> --endpoint http://127.0.0.1:8080")
+        typer.echo(
+            "no models registered — run: modelproof model register <name> --endpoint http://127.0.0.1:8080"
+        )
         return
     for m in rows:
         ident = "weights-verified" if m.weights_manifest else "identity UNVERIFIED"
@@ -399,7 +451,9 @@ def model_list():
 @evidence_app.command("export")
 def evidence_export(
     run_id: str,
-    out: Path = typer.Option(None, "--out", help="Bundle destination (default <home>/bundles/<run>.bundle.tar.gz)"),
+    out: Path = typer.Option(
+        None, "--out", help="Bundle destination (default <home>/bundles/<run>.bundle.tar.gz)"
+    ),
 ):
     """Export a run's verified artifacts into a portable evidence bundle."""
     from .evidence.bundle import export_run_bundle
@@ -426,7 +480,9 @@ def evidence_verify(
     except ModelProofError as e:
         _fail(e)
         return
-    typer.echo(f"run {report['run_id']}: verified={report['verified']} ({report['checked']} artifacts)")
+    typer.echo(
+        f"run {report['run_id']}: verified={report['verified']} ({report['checked']} artifacts)"
+    )
     if report["missing"]:
         typer.secho(f"  missing: {report['missing']}", fg=typer.colors.RED)
     if report["mismatched"]:
@@ -439,7 +495,9 @@ def evidence_verify(
 @evidence_app.command("import")
 def evidence_import(
     bundle: Path = typer.Argument(..., help="Path to a .bundle.tar.gz"),
-    new_id: str = typer.Option(None, "--as", help="Import under a different run id (if the id exists locally)"),
+    new_id: str = typer.Option(
+        None, "--as", help="Import under a different run id (if the id exists locally)"
+    ),
 ):
     """Verify and import a bundle so the run is locally inspectable (marked imported)."""
     from .evidence.bundle import import_run_bundle
@@ -450,17 +508,25 @@ def evidence_import(
     except ModelProofError as e:
         _fail(e)
         return
-    typer.echo(f"imported run {result['run_id']} (original {result['original_run_id']}), "
-               f"{result['checked']} artifacts verified")
-    typer.echo("note: an imported run was NOT executed on this machine; import proves artifact "
-               "integrity, not that the recorded evaluation happened as described")
+    typer.echo(
+        f"imported run {result['run_id']} (original {result['original_run_id']}), "
+        f"{result['checked']} artifacts verified"
+    )
+    typer.echo(
+        "note: an imported run was NOT executed on this machine; import proves artifact "
+        "integrity, not that the recorded evaluation happened as described"
+    )
 
 
 # ------------------------------------------------------------------ release gates
 @gates_app.command("run")
 def gates_run(
-    suite: Path = typer.Option(Path("suites/python-core"), "--suite", help="Suite used for fixture probes"),
-    fixture_outputs: Path = typer.Option(Path("examples/fixture-outputs.json"), "--fixture-outputs"),
+    suite: Path = typer.Option(
+        Path("suites/python-core"), "--suite", help="Suite used for fixture probes"
+    ),
+    fixture_outputs: Path = typer.Option(
+        Path("examples/fixture-outputs.json"), "--fixture-outputs"
+    ),
 ):
     """Execute all release gates and write the qualification report."""
     from .gates.registry import GateInputs, run_release_gates
@@ -469,11 +535,16 @@ def gates_run(
     base = Path.cwd()
     suite_path = suite if suite.is_absolute() else (base / suite)
     fx_path = fixture_outputs if fixture_outputs.is_absolute() else (base / fixture_outputs)
-    report = run_release_gates(settings, GateInputs(suite_path=suite_path, fixture_outputs_path=fx_path))
+    report = run_release_gates(
+        settings, GateInputs(suite_path=suite_path, fixture_outputs_path=fx_path)
+    )
     typer.echo(f"release qualification: {report['verdict']}")
     for g in report["gates"]:
-        color = {"PASS": typer.colors.GREEN, "FAIL": typer.colors.RED,
-                 "BLOCKED": typer.colors.YELLOW}.get(g["status"], typer.colors.WHITE)
+        color = {
+            "PASS": typer.colors.GREEN,
+            "FAIL": typer.colors.RED,
+            "BLOCKED": typer.colors.YELLOW,
+        }.get(g["status"], typer.colors.WHITE)
         typer.secho(f"  [{g['status']:8s}] {g['id']:4s} {g['title']}", fg=color)
         typer.echo(f"            {g['detail'][:160]}")
     typer.echo(f"full report: {settings.release_dir / 'release.html'}")
@@ -524,13 +595,19 @@ def run_compare(
 
     cfg_a, cases_a, sum_a = _parts(row_a)
     cfg_b, cases_b, sum_b = _parts(row_b)
-    result = compare_runs(run_a_id=run_a, run_b_id=run_b, config_a=cfg_a, config_b=cfg_b,
-                          cases_a=cases_a, cases_b=cases_b,
-                          summary_a=sum_a, summary_b=sum_b, n_resamples=resamples)
+    result = compare_runs(
+        run_a_id=run_a,
+        run_b_id=run_b,
+        config_a=cfg_a,
+        config_b=cfg_b,
+        cases_a=cases_a,
+        cases_b=cases_b,
+        summary_a=sum_a,
+        summary_b=sum_b,
+        n_resamples=resamples,
+    )
     typer.echo(_json.dumps(result, indent=2))
     if not result.get("compatible"):
-        from .errors import EXIT_INVALID_INPUT
-
         sys.exit(EXIT_INVALID_INPUT)
 
 

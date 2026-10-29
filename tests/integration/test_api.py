@@ -1,5 +1,6 @@
 """API contract tests (spec §7): FastAPI routes, background execution,
 duplicate submission, pagination, verification — via httpx TestClient."""
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,7 @@ def client(settings, suite_copy, engine):
     # `engine` registers the fixture model + suite in the same home; the API's
     # per-thread engines share that database.
     app = create_app(settings, with_worker=True)
-    with TestClient(app) as c:   # context manager runs startup (worker thread)
+    with TestClient(app) as c:  # context manager runs startup (worker thread)
         yield c
 
 
@@ -50,27 +51,33 @@ def test_suites_and_models_lists(client):
     assert r.status_code == 200
     models = r.json()["models"]
     assert models and models[0]["name"] == "local-fixture"
-    assert models[0]["identity_verified"] is False   # honest: no weights declared
+    assert models[0]["identity_verified"] is False  # honest: no weights declared
 
 
 def test_run_lifecycle_via_api(client, tmp_path):
     fx = _fixture_outputs(tmp_path)
-    r = client.post("/api/v1/runs", json={
-        "model_name": "local-fixture",
-        "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
-        "execution_mode": "fixture_replay",
-        "fixture_outputs_path": str(fx),
-    })
+    r = client.post(
+        "/api/v1/runs",
+        json={
+            "model_name": "local-fixture",
+            "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
+            "execution_mode": "fixture_replay",
+            "fixture_outputs_path": str(fx),
+        },
+    )
     assert r.status_code == 202, r.text
     run_id = r.json()["run_id"]
 
     # duplicate submission while queued → 409 with explicit semantics
-    r2 = client.post("/api/v1/runs", json={
-        "model_name": "local-fixture",
-        "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
-        "execution_mode": "fixture_replay",
-        "fixture_outputs_path": str(fx),
-    })
+    r2 = client.post(
+        "/api/v1/runs",
+        json={
+            "model_name": "local-fixture",
+            "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
+            "execution_mode": "fixture_replay",
+            "fixture_outputs_path": str(fx),
+        },
+    )
     assert r2.status_code == 409
 
     # poll until the worker finishes (fixture run is fast)
@@ -79,7 +86,7 @@ def test_run_lifecycle_via_api(client, tmp_path):
     while time.time() < deadline:
         row = client.get(f"/api/v1/runs/{run_id}").json()
         status = row["status"]
-        if status in ("COMPLETED", "FAILED", "INCOMPLETE", "CANCELLED"):
+        if status in ("COMPLETED", "FAILED", "INCOMPLETE", "CANCELLED") and row.get("verdict"):
             break
         time.sleep(0.3)
     assert status == "COMPLETED"
@@ -117,20 +124,25 @@ def test_create_run_validation_errors(client):
     r = client.post("/api/v1/runs", json={"model_name": "nope", "suite_path": "/tmp"})
     assert r.status_code == 400
     # invalid execution mode rejected by schema
-    r = client.post("/api/v1/runs", json={"model_name": "local-fixture", "suite_path": "/tmp",
-                                          "execution_mode": "host_direct"})
+    r = client.post(
+        "/api/v1/runs",
+        json={"model_name": "local-fixture", "suite_path": "/tmp", "execution_mode": "host_direct"},
+    )
     assert r.status_code == 422
 
 
 def test_cancel_semantics(client, tmp_path):
     """Cancel of a finished run is a no-op result; cancel of unknown → 404."""
     fx = _fixture_outputs(tmp_path)
-    r = client.post("/api/v1/runs", json={
-        "model_name": "local-fixture",
-        "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
-        "execution_mode": "fixture_replay",
-        "fixture_outputs_path": str(fx),
-    })
+    r = client.post(
+        "/api/v1/runs",
+        json={
+            "model_name": "local-fixture",
+            "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
+            "execution_mode": "fixture_replay",
+            "fixture_outputs_path": str(fx),
+        },
+    )
     run_id = r.json()["run_id"]
     deadline = time.time() + 60
     while time.time() < deadline:
@@ -143,12 +155,15 @@ def test_cancel_semantics(client, tmp_path):
 
 def test_report_html_endpoint_is_safe(client, tmp_path):
     fx = _fixture_outputs(tmp_path)
-    r = client.post("/api/v1/runs", json={
-        "model_name": "local-fixture",
-        "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
-        "execution_mode": "fixture_replay",
-        "fixture_outputs_path": str(fx),
-    })
+    r = client.post(
+        "/api/v1/runs",
+        json={
+            "model_name": "local-fixture",
+            "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
+            "execution_mode": "fixture_replay",
+            "fixture_outputs_path": str(fx),
+        },
+    )
     run_id = r.json()["run_id"]
     deadline = time.time() + 60
     while time.time() < deadline:
@@ -158,4 +173,78 @@ def test_report_html_endpoint_is_safe(client, tmp_path):
     html = client.get(f"/api/v1/runs/{run_id}/report.html")
     assert html.status_code == 200
     assert "text/html" in html.headers["content-type"]
-    assert "text/html" in html.headers["content-type"] and "<script" not in html.text.lower().split("</style>")[-1]
+    assert (
+        "text/html" in html.headers["content-type"]
+        and "<script" not in html.text.lower().split("</style>")[-1]
+    )
+
+
+def test_api_miscellaneous_endpoints(client, tmp_path):
+    fx = _fixture_outputs(tmp_path)
+    r = client.post(
+        "/api/v1/runs",
+        json={
+            "model_name": "local-fixture",
+            "suite_path": str(Path(__file__).resolve().parents[2] / "suites" / "python-core"),
+            "execution_mode": "fixture_replay",
+            "fixture_outputs_path": str(fx),
+        },
+    )
+    run_id = r.json()["run_id"]
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        row = client.get(f"/api/v1/runs/{run_id}").json()
+        if row.get("status") == "COMPLETED" and row.get("verdict"):
+            break
+        time.sleep(0.3)
+
+    # Doctor
+    doc_res = client.get("/api/v1/doctor")
+    assert doc_res.status_code == 200
+    assert "checks" in doc_res.json()
+
+    # Storage
+    store_res = client.get("/api/v1/storage")
+    assert store_res.status_code == 200
+    assert "artifacts_bytes" in store_res.json()
+
+    # Gates (returns 404 if no report yet)
+    gates_res = client.get("/api/v1/gates")
+    assert gates_res.status_code in (200, 404)
+
+    # Models
+    models_res = client.get("/api/v1/models")
+    assert models_res.status_code == 200
+    assert any(m["name"] == "local-fixture" for m in models_res.json()["models"])
+
+    # Suites
+    suites_res = client.get("/api/v1/suites")
+    assert suites_res.status_code == 200
+
+    # Validate suite endpoint
+    suite_dir = Path(__file__).resolve().parents[2] / "suites" / "python-core"
+    tasks_res = client.post("/api/v1/suites/validate", json={"path": str(suite_dir)})
+    assert tasks_res.status_code == 200
+    assert len(tasks_res.json()["tasks"]) == 24
+
+    # Events
+    events_res = client.get(f"/api/v1/runs/{run_id}/events")
+    assert events_res.status_code == 200
+    assert "events" in events_res.json()
+
+    # Compare
+    comp_res = client.get(f"/api/v1/compare?run_a={run_id}&run_b={run_id}&resamples=100")
+    assert comp_res.status_code == 200
+    assert comp_res.json()["compatible"] is True
+
+    # Bundle export & verify
+    bundle_res = client.post("/api/v1/evidence/export", json={"run_id": run_id})
+    assert bundle_res.status_code == 200
+    bundle_path = bundle_res.json()["bundle_path"]
+
+    verify_res = client.post(
+        "/api/v1/evidence/verify",
+        json={"path": bundle_path},
+    )
+    assert verify_res.status_code == 200
+    assert verify_res.json()["verified"] is True

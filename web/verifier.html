@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ModelProof — Zero-Install In-Browser Evidence Verifier</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --heading: #f0f6fc;
+      --green: #238636;
+      --green-bg: #1f6feb22;
+      --red: #da3633;
+      --blue: #58a6ff;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { color: var(--heading); font-size: 2rem; margin-bottom: 0.5rem; }
+    header p { color: #8b949e; font-size: 1.1rem; }
+    .tagline {
+      display: inline-block;
+      margin-top: 0.5rem;
+      padding: 0.25rem 0.75rem;
+      background: #1f242c;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-family: var(--font-mono);
+      color: var(--blue);
+    }
+    .dropzone {
+      border: 2px dashed #388bfd;
+      border-radius: 12px;
+      background: var(--card);
+      padding: 3rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 2rem;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      background: #1c2128;
+      border-color: #58a6ff;
+      transform: translateY(-2px);
+    }
+    .dropzone svg {
+      width: 48px;
+      height: 48px;
+      fill: var(--blue);
+      margin-bottom: 1rem;
+    }
+    .dropzone h3 { color: var(--heading); margin-bottom: 0.5rem; }
+    .dropzone p { color: #8b949e; font-size: 0.9rem; }
+    .results { display: none; margin-top: 2rem; }
+    .status-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .status-badge {
+      display: inline-block;
+      font-weight: bold;
+      padding: 0.35rem 0.85rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+    }
+    .status-pass { background: rgba(35, 134, 54, 0.2); color: #3fb950; border: 1px solid #238636; }
+    .status-fail { background: rgba(218, 54, 51, 0.2); color: #f85149; border: 1px solid #da3633; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--heading); background: #1f242c; }
+    .mono { font-family: var(--font-mono); font-size: 0.85rem; }
+    .log-box {
+      background: #000;
+      border: 1px solid var(--border);
+      padding: 1rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      max-height: 250px;
+      overflow-y: auto;
+      color: #7ee787;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>ModelProof Verifier</h1>
+      <p>Independent in-browser cryptographic verification of model evaluation evidence bundles.</p>
+      <div class="tagline">"Don't trust the number. Verify the bundle."</div>
+    </header>
+
+    <div class="dropzone" id="dropzone">
+      <svg viewBox="0 0 24 24">
+        <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+      </svg>
+      <h3>Drop evidence bundle here (*.bundle.tar.gz)</h3>
+      <p>Or click to browse from your computer. Runs 100% locally in your browser via Web Crypto API.</p>
+      <input type="file" id="fileInput" accept=".tar.gz,.gz" style="display: none;">
+    </div>
+
+    <div id="results" class="results">
+      <div class="status-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h2 id="bundleTitle" style="color: var(--heading);">Evidence Bundle Verification</h2>
+          <span id="verdictBadge" class="status-badge status-pass">VERIFIED</span>
+        </div>
+        <div id="metaInfo"></div>
+      </div>
+
+      <div class="status-card">
+        <h3 style="color: var(--heading);">Integrity Gates</h3>
+        <table id="gatesTable">
+          <thead>
+            <tr><th>Gate</th><th>Status</th><th>Detail</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="status-card">
+        <h3 style="color: var(--heading);">Cryptographic Verification Log</h3>
+        <div id="logBox" class="log-box"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const results = document.getElementById('results');
+    const logBox = document.getElementById('logBox');
+
+    function log(msg) {
+      logBox.innerHTML += `[${new Date().toISOString().split('T')[1].slice(0, 8)}] ${msg}<br>`;
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) handleFile(fileInput.files[0]);
+    });
+
+    async function sha256(buffer) {
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function handleFile(file) {
+      results.style.display = 'block';
+      logBox.innerHTML = '';
+      log(`Opening bundle: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+
+      try {
+        const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
+        const decompressed = await new Response(stream).arrayBuffer();
+        log(`Decompressed archive: ${(decompressed.byteLength / 1024).toFixed(1)} KB`);
+
+        // Untar in memory
+        const files = untar(new Uint8Array(decompressed));
+        log(`Extracted ${Object.keys(files).length} members from tar`);
+
+        // Check bundle.json
+        if (!files['bundle.json']) throw new Error("bundle.json missing from archive");
+        const meta = JSON.parse(new TextDecoder().decode(files['bundle.json']));
+        log(`Bundle ID: ${meta.run_id}, Model: ${meta.model_name}, Schema: ${meta.bundle_schema}`);
+
+        // Check checksums.sha256
+        if (!files['checksums.sha256']) throw new Error("checksums.sha256 missing from archive");
+        const checksumLines = new TextDecoder().decode(files['checksums.sha256']).trim().split('\n');
+
+        let matched = 0, mismatched = 0;
+        for (const line of checksumLines) {
+          const [expectedHash, filename] = line.trim().split(/\s+/);
+          const tarKey = 'artifacts/' + filename;
+          if (files[tarKey]) {
+            const actualHash = await sha256(files[tarKey]);
+            if (actualHash === expectedHash) {
+              matched++;
+            } else {
+              mismatched++;
+              log(`HASH MISMATCH: ${filename} (expected ${expectedHash}, got ${actualHash})`);
+            }
+          }
+        }
+        log(`SHA-256 Verification: ${matched} verified, ${mismatched} mismatches`);
+
+        const isVerified = (mismatched === 0 && matched > 0);
+        document.getElementById('verdictBadge').textContent = isVerified ? "VERIFIED (100% MATCH)" : "INTEGRITY FAILED";
+        document.getElementById('verdictBadge').className = `status-badge ${isVerified ? 'status-pass' : 'status-fail'}`;
+
+        document.getElementById('metaInfo').innerHTML = `
+          <p><strong>Run ID:</strong> <span class="mono">${meta.run_id}</span></p>
+          <p><strong>Model:</strong> ${meta.model_name}</p>
+          <p><strong>Suite Content Hash:</strong> <span class="mono">${meta.suite_content_hash.slice(0, 16)}…</span></p>
+          <p><strong>Configuration Hash:</strong> <span class="mono">${meta.config_hash.slice(0, 16)}…</span></p>
+          <p><strong>Artifacts Verified:</strong> ${matched} / ${checksumLines.length}</p>
+        `;
+
+        if (files['artifacts/summary.json']) {
+          const summary = JSON.parse(new TextDecoder().decode(files['artifacts/summary.json']));
+          log(`Loaded summary: Pass Rate=${summary.pass_rate}, Status=${summary.status}, Verdict=${summary.verdict}`);
+        }
+
+        const tbody = document.querySelector('#gatesTable tbody');
+        tbody.innerHTML = '';
+        (meta.gates || []).forEach(g => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td><strong>${g.gate}</strong></td>
+            <td><span class="status-badge ${g.outcome === 'PASS' ? 'status-pass' : 'status-fail'}">${g.outcome}</span></td>
+            <td>${g.detail}</td>
+          `;
+          tbody.appendChild(row);
+        });
+
+      } catch (err) {
+        log(`ERROR: ${err.message}`);
+        document.getElementById('verdictBadge').textContent = "ERROR";
+        document.getElementById('verdictBadge').className = "status-badge status-fail";
+      }
+    }
+
+    // Lightweight tar extractor for standard ustar
+    function untar(bytes) {
+      const files = {};
+      let offset = 0;
+      while (offset < bytes.length - 512) {
+        const header = bytes.subarray(offset, offset + 512);
+        if (header.every(b => b === 0)) break;
+        let name = '';
+        for (let i = 0; i < 100 && header[i] !== 0; i++) name += String.fromCharCode(header[i]);
+        let sizeStr = '';
+        for (let i = 124; i < 136 && header[i] !== 0; i++) sizeStr += String.fromCharCode(header[i]);
+        const size = parseInt(sizeStr.trim(), 8) || 0;
+        offset += 512;
+        if (size > 0 && name) {
+          files[name] = bytes.subarray(offset, offset + size);
+        }
+        offset += Math.ceil(size / 512) * 512;
+      }
+      return files;
+    }
+  </script>
+</body>
+</html>

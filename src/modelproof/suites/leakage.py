@@ -12,6 +12,7 @@ None of these establish that the suite is independent of model training data.
 Suite-level independence remains INDEPENDENCE_UNVERIFIED unless a genuine
 contamination audit has been performed and documented.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -30,11 +31,13 @@ class LeakageReport:
     near_dupes: list[tuple[str, str, float]] = field(default_factory=list)
     private_test_leaks: list[str] = field(default_factory=list)
     checks_performed: list[str] = field(default_factory=list)
-    checks_not_performed: list[str] = field(default_factory=lambda: [
-        "training-corpus contamination audit",
-        "paraphrase/translation detection",
-        "third-party benchmark overlap audit",
-    ])
+    checks_not_performed: list[str] = field(
+        default_factory=lambda: [
+            "training-corpus contamination audit",
+            "paraphrase/translation detection",
+            "third-party benchmark overlap audit",
+        ]
+    )
 
     def summary(self) -> str:
         parts = []
@@ -43,7 +46,9 @@ class LeakageReport:
         if self.normalized_dupes:
             parts.append(f"normalized duplicate instructions: {self.normalized_dupes}")
         if self.private_test_leaks:
-            parts.append(f"private tests leaked into model-facing payload: {self.private_test_leaks}")
+            parts.append(
+                f"private tests leaked into model-facing payload: {self.private_test_leaks}"
+            )
         return "; ".join(parts) or "no leakage detected"
 
     def provenance_status(self) -> ProvenanceStatus:
@@ -69,11 +74,13 @@ class OverlapReport:
     near_dup_candidates: list[tuple[str, str, float]] = field(default_factory=list)
     tasks_compared: tuple[int, int] = (0, 0)
     checks_performed: list[str] = field(default_factory=list)
-    checks_not_performed: list[str] = field(default_factory=lambda: [
-        "comparison against known public training corpora",
-        "paraphrase/translation detection",
-        "training-corpus contamination audit",
-    ])
+    checks_not_performed: list[str] = field(
+        default_factory=lambda: [
+            "comparison against known public training corpora",
+            "paraphrase/translation detection",
+            "training-corpus contamination audit",
+        ]
+    )
 
     def status(self) -> str:
         """Status vocabulary per mandate §6.1 — never `INDEPENDENT`."""
@@ -84,15 +91,16 @@ class OverlapReport:
         return "OVERLAP_CHECKED"
 
 
-def cross_suite_overlap(tasks_a, tasks_b, *, suite_a: str = "A", suite_b: str = "B") -> OverlapReport:
+def cross_suite_overlap(
+    tasks_a, tasks_b, *, suite_a: str = "A", suite_b: str = "B"
+) -> OverlapReport:
     """Compare two loaded suites for content overlap.
 
     Methods (disclosed, heuristic): exact instruction/starter hashes, normalized
     text hashes, SequenceMatcher near-duplicate candidates. Similarity flags
     potential overlap; it never asserts actual training contamination.
     """
-    report = OverlapReport(suite_a=suite_a, suite_b=suite_b,
-                           tasks_compared=(len(list(tasks_a)), 0))
+    report = OverlapReport(suite_a=suite_a, suite_b=suite_b, tasks_compared=(len(list(tasks_a)), 0))
     a_list = list(tasks_a)
     b_list = list(tasks_b)
     report.tasks_compared = (len(a_list), len(b_list))
@@ -106,9 +114,13 @@ def cross_suite_overlap(tasks_a, tasks_b, *, suite_a: str = "A", suite_b: str = 
                 text_a = ta.spec.instruction if kind == "instruction" else ta.starter
                 text_b = tb.spec.instruction if kind == "instruction" else tb.starter
                 if sha256_text(text_a) == sha256_text(text_b):
-                    report.exact_hash_overlaps.append((f"{ta.spec.id}:{kind}", f"{tb.spec.id}:{kind}"))
-            if (normalize_text(ta.spec.instruction) == normalize_text(tb.spec.instruction)
-                    and (ta.spec.id, tb.spec.id) not in report.normalized_overlaps):
+                    report.exact_hash_overlaps.append(
+                        (f"{ta.spec.id}:{kind}", f"{tb.spec.id}:{kind}")
+                    )
+            if (
+                normalize_text(ta.spec.instruction) == normalize_text(tb.spec.instruction)
+                and (ta.spec.id, tb.spec.id) not in report.normalized_overlaps
+            ):
                 report.normalized_overlaps.append((ta.spec.id, tb.spec.id))
     # near-duplicate candidates, bounded: quick_ratio prefilter
     for ta in a_list:
@@ -117,7 +129,10 @@ def cross_suite_overlap(tasks_a, tasks_b, *, suite_a: str = "A", suite_b: str = 
             nb = normalize_text(tb.spec.instruction)
             if SequenceMatcher(None, na, nb).quick_ratio() >= NEAR_DUP_THRESHOLD:
                 real = SequenceMatcher(None, na, nb).ratio()
-                if real >= NEAR_DUP_THRESHOLD and (ta.spec.id, tb.spec.id) not in report.near_dup_candidates:
+                if (
+                    real >= NEAR_DUP_THRESHOLD
+                    and (ta.spec.id, tb.spec.id) not in report.near_dup_candidates
+                ):
                     report.near_dup_candidates.append((ta.spec.id, tb.spec.id, round(real, 4)))
     return report
 

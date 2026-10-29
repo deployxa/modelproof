@@ -18,6 +18,7 @@ What a verified bundle PROVES (documented in docs/provenance-policy.md):
     actually happened as described, that statistics are valid, that the model
     identity claim is true, or that the exporter is authentic.
 """
+
 from __future__ import annotations
 
 import io
@@ -34,8 +35,8 @@ from ..errors import IntegrityError, InvalidInputError
 from ..hashing import atomic_write_json
 
 BUNDLE_SCHEMA = "modelproof.bundle/1"
-MAX_BUNDLE_BYTES = 1_000_000_000      # 1 GB archive ceiling
-MAX_MEMBER_BYTES = 512_000_000        # per-member ceiling
+MAX_BUNDLE_BYTES = 1_000_000_000  # 1 GB archive ceiling
+MAX_MEMBER_BYTES = 512_000_000  # per-member ceiling
 MAX_MEMBERS = 20_000
 
 
@@ -51,9 +52,13 @@ def export_run_bundle(artifacts_dir: Path, run_id: str, out_path: Path | None = 
         raise InvalidInputError(f"no artifacts for run {run_id!r}")
     checksums = run_dir / "checksums.json"
     if not checksums.is_file():
-        raise IntegrityError(f"run {run_id!r} has no checksums.json; refusing to export unverified artifacts")
+        raise IntegrityError(
+            f"run {run_id!r} has no checksums.json; refusing to export unverified artifacts"
+        )
     summary_path = run_dir / "summary.json"
-    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else None
+    summary = (
+        json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else None
+    )
 
     members = sorted(p for p in run_dir.rglob("*") if p.is_file() and not p.is_symlink())
     if len(members) > MAX_MEMBERS:
@@ -69,11 +74,13 @@ def export_run_bundle(artifacts_dir: Path, run_id: str, out_path: Path | None = 
         "suite_id": summary.get("suite_id") if summary else None,
         "suite_version": summary.get("suite_version") if summary else None,
         "config_hash": summary.get("config_hash") if summary else None,
-        "engine_version": (summary.get("environment") or {}).get("modelproof_version") if summary else __version__,
+        "engine_version": (summary.get("environment") or {}).get("modelproof_version")
+        if summary
+        else __version__,
         "artifact_count": len(members),
         "exported_at": _utcnow(),
         "note": "a verified bundle proves artifact file integrity ONLY — not that the "
-                "recorded run happened as described, nor any model-capability claim",
+        "recorded run happened as described, nor any model-capability claim",
     }
 
     if out_path is None:
@@ -125,9 +132,15 @@ def read_bundle_meta(bundle_path: Path) -> dict:
     with tarfile.open(bundle_path, "r:gz") as tar:
         _safe_members(tar)
         try:
-            meta = json.load(tar.extractfile("bundle.json"))  # type: ignore[union-attr]
+            f = tar.extractfile("bundle.json")
         except KeyError as e:
             raise IntegrityError("bundle.json missing from archive") from e
+        if f is None:
+            raise IntegrityError("bundle.json missing from archive")
+        try:
+            meta = json.load(f)
+        except json.JSONDecodeError as e:
+            raise IntegrityError(f"invalid JSON in bundle.json: {e}") from e
     if meta.get("bundle_schema") != BUNDLE_SCHEMA:
         raise IntegrityError(
             f"unsupported bundle schema {meta.get('bundle_schema')!r} (expected {BUNDLE_SCHEMA!r})"

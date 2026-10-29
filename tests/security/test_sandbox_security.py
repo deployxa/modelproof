@@ -4,6 +4,7 @@ Local-only guarantees are tested directly. Sandbox hardening tests require a
 Docker daemon; in environments without Docker they are marked BLOCKED and
 reported as NOT_RUN rather than silently skipped (spec §14/§16 honesty rule).
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,9 @@ try:
 except Exception as e:  # noqa: BLE001
     _docker_reason = f"docker check failed: {e}"
 
-requires_docker = pytest.mark.skipif(not docker_ready, reason=f"BLOCKED: {_docker_reason or 'docker unavailable'}")
+requires_docker = pytest.mark.skipif(
+    not docker_ready, reason=f"BLOCKED: {_docker_reason or 'docker unavailable'}"
+)
 
 
 from http.server import BaseHTTPRequestHandler, HTTPServer  # noqa: E402
@@ -60,8 +63,10 @@ class TestLocalOnlyOperation:
             fx = tmp_path / "fx.json"
             fx.write_text(json.dumps({"outputs": build()}), encoding="utf-8")
             run_id = engine.create_run(
-                model_name="local-fixture", suite_path=suite_copy,
-                execution_mode="fixture_replay", fixture_outputs_path=fx,
+                model_name="local-fixture",
+                suite_path=suite_copy,
+                execution_mode="fixture_replay",
+                fixture_outputs_path=fx,
             )
             engine.start_run(run_id)
 
@@ -103,13 +108,23 @@ class TestRedirectEscape:
             from modelproof.models.adapter import OpenAICompatibleAdapter
             from modelproof.schemas import GenerationRequest, TaskCategory
 
-            adapter = OpenAICompatibleAdapter(f"http://127.0.0.1:{port}", timeout_s=5, connect_timeout_s=5)
+            adapter = OpenAICompatibleAdapter(
+                f"http://127.0.0.1:{port}", timeout_s=5, connect_timeout_s=5
+            )
             with pytest.raises(EndpointPolicyError):
-                adapter.generate(GenerationRequest(
-                    run_id="r", task_id="t", category=TaskCategory.BUG_FIX, prompt="p",
-                    prompt_template_version="v1", prompt_template_hash="h",
-                    generation={}, max_tokens=8, timeout_s=5,
-                ))
+                adapter.generate(
+                    GenerationRequest(
+                        run_id="r",
+                        task_id="t",
+                        category=TaskCategory.BUG_FIX,
+                        prompt="p",
+                        prompt_template_version="v1",
+                        prompt_template_hash="h",
+                        generation={},
+                        max_tokens=8,
+                        timeout_s=5,
+                    )
+                )
         finally:
             server.shutdown()
 
@@ -139,7 +154,9 @@ class TestSandboxHardening:
             files={
                 "submission.py": code,
                 "tests/test_checks.py": "def check_noop(sub):\n    pass\n",
-                "run_checks.py": (SUITE_PATH / "harness" / "run_checks.py").read_text(encoding="utf-8"),
+                "run_checks.py": (SUITE_PATH / "harness" / "run_checks.py").read_text(
+                    encoding="utf-8"
+                ),
             },
             command=["python3", "/work/run_checks.py"],
         )

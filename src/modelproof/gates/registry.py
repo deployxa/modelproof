@@ -13,12 +13,12 @@ ModelProof home. Gate 12 aggregates the mandatory gates; a BLOCKED mandatory
 gate makes qualification BLOCKED — a release can be technically useful while
 still failing qualification, and this report says which.
 """
+
 from __future__ import annotations
 
 import json
 import platform
 import shutil
-import sys
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,7 +27,6 @@ from pathlib import Path
 from .. import __version__
 from ..artifacts.store import ArtifactStore
 from ..config import Settings
-from ..db import get_thread_conn
 from ..errors import EndpointPolicyError, ModelProofError
 from ..evidence.bundle import export_run_bundle, import_run_bundle, verify_bundle
 from ..hashing import sha256_bytes
@@ -35,7 +34,7 @@ from ..models.registry import get_model, register_model
 from ..provenance.integrity import MANDATORY_GATES
 from ..runner.engine import EvaluationEngine
 from ..statistics.compare import mcnemar_exact
-from ..statistics.stats import aggregate, wilson_interval
+from ..statistics.stats import wilson_interval
 from ..suites.loader import load_suite
 from ..validation.endpoints import validate_endpoint
 
@@ -47,7 +46,7 @@ class GateOutcome:
     id: str
     title: str
     mandatory: bool
-    status: str                     # PASS | FAIL | BLOCKED | NOT_RUN | NOT_APPLICABLE
+    status: str  # PASS | FAIL | BLOCKED | NOT_RUN | NOT_APPLICABLE
     detail: str
     procedure: str
     preconditions: str
@@ -84,16 +83,26 @@ def _gate_install(settings: Settings) -> GateOutcome:
     capability_missing = [c.name for c in checks if c.name in _CAPABILITY_CHECKS and not c.ok]
     blocking = [c for c in install_checks if not c.ok and not c.warn_only]
     status = "PASS" if not blocking else "FAIL"
-    note = ("installation verified; container runtime unavailable in this environment "
-            "(capability — see G5)" if capability_missing and status == "PASS" else "")
+    note = (
+        "installation verified; container runtime unavailable in this environment "
+        "(capability — see G5)"
+        if capability_missing and status == "PASS"
+        else ""
+    )
     return GateOutcome(
-        id="G1", title="Repository and installation", mandatory=True,
+        id="G1",
+        title="Repository and installation",
+        mandatory=True,
         status=status,
-        detail=("environment installs and initializes: " + "; ".join(f"{c.name}={c.label}" for c in install_checks)
-                + ((" — " + note) if note else ""))
-        if status == "PASS" else "blocking checks failed: " + "; ".join(c.name for c in blocking),
+        detail=(
+            "environment installs and initializes: "
+            + "; ".join(f"{c.name}={c.label}" for c in install_checks)
+            + ((" — " + note) if note else "")
+        )
+        if status == "PASS"
+        else "blocking checks failed: " + "; ".join(c.name for c in blocking),
         procedure="run doctor checks (python, dependencies, database, storage) against the live home; "
-                  "container-runtime availability is deferred to G5",
+        "container-runtime availability is deferred to G5",
         preconditions="repository present; Python >= 3.12",
         evidence=[_evid("doctor", f"{c.name}: {c.label} — {c.detail}") for c in checks],
     )
@@ -103,7 +112,8 @@ def _gate_install(settings: Settings) -> GateOutcome:
 def _ensure_fixture_model(engine: EvaluationEngine) -> None:
     if get_model(engine.db, "release-fixture") is None:
         register_model(
-            engine.db, name="release-fixture",
+            engine.db,
+            name="release-fixture",
             endpoint="http://127.0.0.1:8899",  # loopback; fixture mode never contacts it
             declared_notes="probe model used by the release-gate fixture runs; not a real model",
         )
@@ -112,8 +122,10 @@ def _ensure_fixture_model(engine: EvaluationEngine) -> None:
 def _run_fixture(engine: EvaluationEngine, inputs: GateInputs) -> str:
     _ensure_fixture_model(engine)
     return engine.create_run(
-        model_name="release-fixture", suite_path=Path(inputs.suite_path),
-        execution_mode="fixture_replay", fixture_outputs_path=Path(inputs.fixture_outputs_path),
+        model_name="release-fixture",
+        suite_path=Path(inputs.suite_path),
+        execution_mode="fixture_replay",
+        fixture_outputs_path=Path(inputs.fixture_outputs_path),
     )
 
 
@@ -124,7 +136,10 @@ def _gate_functional(settings: Settings, inputs: GateInputs) -> tuple[GateOutcom
         summary = engine.start_run(run_id)
     except ModelProofError as e:
         return GateOutcome(
-            id="G2", title="Functional completeness", mandatory=True, status="FAIL",
+            id="G2",
+            title="Functional completeness",
+            mandatory=True,
+            status="FAIL",
             detail=f"fixture end-to-end run failed: {e.message} {e.detail or ''}",
             procedure="create + execute a labeled fixture_replay run through the real engine",
             preconditions="bundled suite and fixture outputs available",
@@ -136,18 +151,31 @@ def _gate_functional(settings: Settings, inputs: GateInputs) -> tuple[GateOutcom
         and summary["verdict"] == "INSUFFICIENT_EVIDENCE"
     )
     evidence = [
-        _evid(f"artifacts/{run_id}/summary.json",
-              f"status={summary['status']} verdict={summary['verdict']} "
-              f"cases={summary['cases_terminal']}/{summary['tasks_total']}"),
-        _evid("verdict_policy", "fixture run capped at INSUFFICIENT_EVIDENCE — labeling enforced, not optional"),
+        _evid(
+            f"artifacts/{run_id}/summary.json",
+            f"status={summary['status']} verdict={summary['verdict']} "
+            f"cases={summary['cases_terminal']}/{summary['tasks_total']}",
+        ),
+        _evid(
+            "verdict_policy",
+            "fixture run capped at INSUFFICIENT_EVIDENCE — labeling enforced, not optional",
+        ),
     ]
     if not ok:
-        evidence.append(_evid("failure", "fixture run did not complete cleanly; see run events.jsonl"))
+        evidence.append(
+            _evid("failure", "fixture run did not complete cleanly; see run events.jsonl")
+        )
     return GateOutcome(
-        id="G2", title="Functional completeness", mandatory=True,
+        id="G2",
+        title="Functional completeness",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
-        detail=("end-to-end pipeline (suite → generation → scoring → statistics → report) "
-                "completed on a labeled fixture run" if ok else "fixture run did not complete as required"),
+        detail=(
+            "end-to-end pipeline (suite → generation → scoring → statistics → report) "
+            "completed on a labeled fixture run"
+            if ok
+            else "fixture run did not complete as required"
+        ),
         procedure="fixture_replay run through the production engine; no separate demo code path exists",
         preconditions="G1 passes",
         evidence=evidence,
@@ -155,11 +183,17 @@ def _gate_functional(settings: Settings, inputs: GateInputs) -> tuple[GateOutcom
 
 
 # ------------------------------------------------- G3  evaluation correctness
-def _gate_evaluation_correctness(settings: Settings, inputs: GateInputs, run_id: str | None) -> GateOutcome:
+def _gate_evaluation_correctness(
+    settings: Settings, inputs: GateInputs, run_id: str | None
+) -> GateOutcome:
     if run_id is None:
         return GateOutcome(
-            id="G3", title="Evaluation correctness", mandatory=True, status="NOT_RUN",
-            detail="skipped: G2 produced no run", procedure="reconcile per-case outcomes with expected fixtures",
+            id="G3",
+            title="Evaluation correctness",
+            mandatory=True,
+            status="NOT_RUN",
+            detail="skipped: G2 produced no run",
+            procedure="reconcile per-case outcomes with expected fixtures",
             preconditions="G2 pass",
         )
     engine = EvaluationEngine(settings)
@@ -182,32 +216,47 @@ def _gate_evaluation_correctness(settings: Settings, inputs: GateInputs, run_id:
         else:
             unmatched.append(task.spec.id)
 
-    mismatches = {t: (expected.get(t), actual.get(t)) for t in expected if expected.get(t) != actual.get(t)}
+    mismatches = {
+        t: (expected.get(t), actual.get(t)) for t in expected if expected.get(t) != actual.get(t)
+    }
     # independent metric recomputation (not reusing engine.aggregate's internals)
     valid = {"PASSED", "FAILED", "TIMEOUT", "INVALID_OUTPUT", "MODEL_ERROR"}
     passed = sum(1 for s in actual.values() if s == "PASSED")
     denom = sum(1 for s in actual.values() if s in valid)
-    summary = json.loads((settings.artifacts_dir / run_id / "summary.json").read_text(encoding="utf-8"))
+    summary = json.loads(
+        (settings.artifacts_dir / run_id / "summary.json").read_text(encoding="utf-8")
+    )
     metric_ok = (
         summary["pass_rate_numerator"] == passed
         and summary["pass_rate_denominator"] == denom
         and abs((summary["pass_rate"] or 0) - (passed / denom if denom else 0)) < 1e-12
     )
     ok = not mismatches and not unmatched and metric_ok
-    detail = ("per-case outcomes reconcile with independently computed fixture expectations; "
-              "aggregate metrics reconcile with per-case records"
-              if ok else
-              f"mismatched={len(mismatches)} unmatched={len(unmatched)} metric_reconciles={metric_ok}")
+    detail = (
+        "per-case outcomes reconcile with independently computed fixture expectations; "
+        "aggregate metrics reconcile with per-case records"
+        if ok
+        else f"mismatched={len(mismatches)} unmatched={len(unmatched)} metric_reconciles={metric_ok}"
+    )
     return GateOutcome(
-        id="G3", title="Evaluation correctness", mandatory=True,
-        status="PASS" if ok else "FAIL", detail=detail,
+        id="G3",
+        title="Evaluation correctness",
+        mandatory=True,
+        status="PASS" if ok else "FAIL",
+        detail=detail,
         procedure="compare per-case statuses against suite-recorded outcomes keyed by submission digest; "
-                  "recompute pass-rate numerator/denominator from case rows independently",
+        "recompute pass-rate numerator/denominator from case rows independently",
         preconditions="G2 pass",
         evidence=[
             _evid(f"artifacts/{run_id}/cases/*.json", f"{len(actual)} case records compared"),
-            _evid("fixtures/recorded_outcomes.json", f"{len(expected)} expected outcomes matched by digest"),
-            _evid("metric_reconciliation", f"numerator={passed} denominator={denom} metric_ok={metric_ok}"),
+            _evid(
+                "fixtures/recorded_outcomes.json",
+                f"{len(expected)} expected outcomes matched by digest",
+            ),
+            _evid(
+                "metric_reconciliation",
+                f"numerator={passed} denominator={denom} metric_ok={metric_ok}",
+            ),
             *[_evid(f"case:{t}", f"expected={e} actual={a}") for t, (e, a) in mismatches.items()],
         ],
     )
@@ -223,9 +272,9 @@ def _wilson_reference(k: int, n: int, z: float):
     if n == 0:
         return None
     phat = k / n
-    denom = 1 + z ** 2 / n
-    center = (phat + z ** 2 / (2 * n)) / denom
-    spread = z * _math.sqrt(phat * (1 - phat) / n + z ** 2 / (4 * n ** 2)) / denom
+    denom = 1 + z**2 / n
+    center = (phat + z**2 / (2 * n)) / denom
+    spread = z * _math.sqrt(phat * (1 - phat) / n + z**2 / (4 * n**2)) / denom
     return center - spread, center + spread
 
 
@@ -236,27 +285,42 @@ def _gate_statistics() -> GateOutcome:
     for k, n in ((0, 10), (5, 10), (10, 10), (3, 7), (81, 263), (0, 24), (18, 24), (24, 24)):
         got = wilson_interval(k, n - k)
         want = _wilson_reference(k, n, Z_95)
-        if got is None or want is None or abs(got[0] - want[0]) > 1e-12 or abs(got[1] - want[1]) > 1e-12:
+        if (
+            got is None
+            or want is None
+            or abs(got[0] - want[0]) > 1e-12
+            or abs(got[1] - want[1]) > 1e-12
+        ):
             failures.append(f"wilson({k}/{n}) → {got} expected {want}")
         else:
-            evidence.append(_evid("reference", f"wilson({k}/{n}) = [{got[0]:.6f}, {got[1]:.6f}] matches independent derivation"))
+            evidence.append(
+                _evid(
+                    "reference",
+                    f"wilson({k}/{n}) = [{got[0]:.6f}, {got[1]:.6f}] matches independent derivation",
+                )
+            )
     b, c, p_ref = 1, 9, 22 / 1024  # exact binomial: 2*(C(10,0)+C(10,1))/2^10
     p = mcnemar_exact(b, c)
     if p is None or abs(p - p_ref) > 1e-12:
         failures.append(f"mcnemar_exact({b},{c}) → {p} expected {p_ref}")
     else:
-        evidence.append(_evid("reference", f"mcnemar_exact({b},{c}) = {p:.9f} matches exact binomial value"))
+        evidence.append(
+            _evid("reference", f"mcnemar_exact({b},{c}) = {p:.9f} matches exact binomial value")
+        )
     zero = wilson_interval(0, 0)
     if zero is not None:
         failures.append("wilson(0,0) must be None (no estimate), got an interval")
     ok = not failures
     return GateOutcome(
-        id="G4", title="Statistical correctness", mandatory=True,
+        id="G4",
+        title="Statistical correctness",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
         detail="statistical routines match independently established reference cases"
-        if ok else "reference mismatches: " + "; ".join(failures),
+        if ok
+        else "reference mismatches: " + "; ".join(failures),
         procedure="cross-check Wilson intervals against an independent in-gate derivation; "
-                  "check exact McNemar against the closed-form binomial; zero-denominator policy",
+        "check exact McNemar against the closed-form binomial; zero-denominator policy",
         preconditions="none",
         evidence=evidence,
     )
@@ -264,29 +328,39 @@ def _gate_statistics() -> GateOutcome:
 
 # ---------------------------------------------------------- G5  sandbox security
 def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
-    from ..sandbox.docker_backend import DockerBackend
-    from ..sandbox.base import ExecutionBundle, SandboxLimits, UnavailableBackend
     from ..errors import SandboxUnavailableError
+    from ..sandbox.base import ExecutionBundle, SandboxLimits, UnavailableBackend
+    from ..sandbox.docker_backend import DockerBackend
 
     backend = DockerBackend()
     ok, reason = backend.available()
     if not ok:
         return GateOutcome(
-            id="G5", title="Sandbox security", mandatory=True, status="BLOCKED",
-            detail=("no Docker daemon available in this environment: real sandboxed execution cannot "
-                    "be verified here. The engine refuses host execution by design (no unsafe fallback), "
-                    "and that refusal path is regression-tested; but the required isolation itself "
-                    "(network=none, cap-drop, no-new-privileges, read-only rootfs, non-root, limits) "
-                    "cannot be demonstrated without a container runtime."),
+            id="G5",
+            title="Sandbox security",
+            mandatory=True,
+            status="BLOCKED",
+            detail=(
+                "no Docker daemon available in this environment: real sandboxed execution cannot "
+                "be verified here. The engine refuses host execution by design (no unsafe fallback), "
+                "and that refusal path is regression-tested; but the required isolation itself "
+                "(network=none, cap-drop, no-new-privileges, read-only rootfs, non-root, limits) "
+                "cannot be demonstrated without a container runtime."
+            ),
             procedure="verify docker restrictions via `docker inspect` before container start; "
-                      "execute adversarial sandbox tests (network, fork, filesystem, output caps)",
+            "execute adversarial sandbox tests (network, fork, filesystem, output caps)",
             preconditions="Docker daemon with the python:3.12-slim image",
             evidence=[
                 _evid("docker availability", reason),
-                _evid("tests/security/test_sandbox_security.py",
-                      "adversarial tests exist and are skipped-with-reason without docker; "
-                      "refusal tests (no host fallback) pass in every environment"),
-                _evid("engine policy", "UnavailableBackend → run FAILED with 'sandbox unavailable — refusing host execution'"),
+                _evid(
+                    "tests/security/test_sandbox_security.py",
+                    "adversarial tests exist and are skipped-with-reason without docker; "
+                    "refusal tests (no host fallback) pass in every environment",
+                ),
+                _evid(
+                    "engine policy",
+                    "UnavailableBackend → run FAILED with 'sandbox unavailable — refusing host execution'",
+                ),
             ],
         )
 
@@ -300,7 +374,12 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
         unavail.execute(ExecutionBundle(files={"submission.py": "1/0\n"}), SandboxLimits())
         failures.append("UnavailableBackend failed to raise SandboxUnavailableError")
     except SandboxUnavailableError:
-        evidence.append(_evid("fallback refusal", "UnavailableBackend raises SandboxUnavailableError; zero host subprocess fallback"))
+        evidence.append(
+            _evid(
+                "fallback refusal",
+                "UnavailableBackend raises SandboxUnavailableError; zero host subprocess fallback",
+            )
+        )
 
     harness_code = "def check_noop(sub):\n    pass\n"
     if inputs and inputs.suite_path:
@@ -308,7 +387,13 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
         if harness_path.is_file():
             harness_code = harness_path.read_text(encoding="utf-8")
     else:
-        default_harness = Path(__file__).resolve().parents[3] / "suites" / "python-core" / "harness" / "run_checks.py"
+        default_harness = (
+            Path(__file__).resolve().parents[3]
+            / "suites"
+            / "python-core"
+            / "harness"
+            / "run_checks.py"
+        )
         if default_harness.is_file():
             harness_code = default_harness.read_text(encoding="utf-8")
 
@@ -335,11 +420,13 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
             failures.append("cap_drop ALL missing")
         if not any("no-new-privileges" in str(s) for s in (cfg.get("security_opt") or [])):
             failures.append("no-new-privileges missing")
-        evidence.append(_evid(
-            "container inspect",
-            f"verified before start: network_mode={cfg.get('network_mode')}, "
-            f"readonly_rootfs={cfg.get('readonly_rootfs')}, cap_drop={cfg.get('cap_drop')}, user={cfg.get('user')}"
-        ))
+        evidence.append(
+            _evid(
+                "container inspect",
+                f"verified before start: network_mode={cfg.get('network_mode')}, "
+                f"readonly_rootfs={cfg.get('readonly_rootfs')}, cap_drop={cfg.get('cap_drop')}, user={cfg.get('user')}",
+            )
+        )
     except Exception as e:
         failures.append(f"verified config probe failed: {e}")
 
@@ -353,9 +440,15 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
             "    print('NETWORK-ERR', type(e).__name__)\n"
         )
         if "NETWORK-ERR" in net_out.stdout:
-            evidence.append(_evid("network isolation", "network egress blocked inside container (--network none)"))
+            evidence.append(
+                _evid(
+                    "network isolation", "network egress blocked inside container (--network none)"
+                )
+            )
         else:
-            failures.append(f"network probe failed: stdout={net_out.stdout} stderr={net_out.stderr}")
+            failures.append(
+                f"network probe failed: stdout={net_out.stdout} stderr={net_out.stderr}"
+            )
     except Exception as e:
         failures.append(f"network probe exception: {e}")
 
@@ -369,7 +462,12 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
             "    print('FS-ERR', type(e).__name__)\n"
         )
         if "FS-ERR" in fs_out.stdout and "WRITE-OK" not in fs_out.stdout:
-            evidence.append(_evid("filesystem isolation", "root filesystem immutable (--read-only); task writes blocked outside scratch"))
+            evidence.append(
+                _evid(
+                    "filesystem isolation",
+                    "root filesystem immutable (--read-only); task writes blocked outside scratch",
+                )
+            )
         else:
             failures.append(f"filesystem probe failed: stdout={fs_out.stdout}")
     except Exception as e:
@@ -379,7 +477,12 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
     try:
         to_out = _exec("while True:\n    pass\n", timeout_s=3)
         if to_out.timed_out:
-            evidence.append(_evid("wall-clock timeout", "infinite loop terminated after timeout (duration_ms > 3000)"))
+            evidence.append(
+                _evid(
+                    "wall-clock timeout",
+                    "infinite loop terminated after timeout (duration_ms > 3000)",
+                )
+            )
         else:
             failures.append("timeout probe did not report timed_out")
     except Exception as e:
@@ -394,7 +497,9 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
             timeout_s=15,
         )
         if "SPAWNED 200" not in proc_out.stdout or proc_out.exit_code != 0:
-            evidence.append(_evid("process limit", "pids-limit enforced; fork bomb throttled/blocked"))
+            evidence.append(
+                _evid("process limit", "pids-limit enforced; fork bomb throttled/blocked")
+            )
         else:
             failures.append("process limit probe allowed spawning 200 processes")
     except Exception as e:
@@ -404,7 +509,12 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
     try:
         out_cap = _exec("print('A' * 10_000_000)")
         if out_cap.output_truncated and len(out_cap.stdout) < 1_000_000:
-            evidence.append(_evid("output cap", f"stdout bounded to {len(out_cap.stdout)} bytes; output_truncated=True"))
+            evidence.append(
+                _evid(
+                    "output cap",
+                    f"stdout bounded to {len(out_cap.stdout)} bytes; output_truncated=True",
+                )
+            )
         else:
             failures.append("output truncation probe failed")
     except Exception as e:
@@ -412,10 +522,13 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
 
     ok = not failures
     return GateOutcome(
-        id="G5", title="Sandbox security", mandatory=True,
+        id="G5",
+        title="Sandbox security",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
         detail="Docker container isolation and resource limits verified against live daemon: network=none, cap-drop ALL, no-new-privileges, read-only rootfs, non-root user, memory/cpu/pid caps, timeout enforcement, output bounds"
-        if ok else "sandbox security probe failures: " + "; ".join(failures),
+        if ok
+        else "sandbox security probe failures: " + "; ".join(failures),
         procedure="verify docker restrictions via `docker inspect` before container start; execute adversarial sandbox tests (network, fork, filesystem, output caps)",
         preconditions="Docker daemon with the python:3.12-slim image",
         evidence=evidence,
@@ -425,15 +538,22 @@ def _gate_sandbox(inputs: GateInputs | None = None) -> GateOutcome:
 # ----------------------------------------------------------- G6  local-only
 def _gate_local_only() -> GateOutcome:
     evidence, failures = [], []
-    for url in ("https://example.com/v1/chat/completions", "http://10.0.0.5:8080",
-                "http://[::ffff:10.0.0.5]:8080", "http://localhost.evil:8080"):
+    for url in (
+        "https://example.com/v1/chat/completions",
+        "http://10.0.0.5:8080",
+        "http://[::ffff:10.0.0.5]:8080",
+        "http://localhost.evil:8080",
+    ):
         try:
             validate_endpoint(url)
             failures.append(f"remote/lookalike endpoint accepted: {url}")
         except EndpointPolicyError as e:
             evidence.append(_evid("refusal", f"{url} refused: {e.message}"))
-    for url in ("http://127.0.0.1:8080", "http://[::1]:8080",
-                "http://[::ffff:127.0.0.1]:8080"):  # IPv4-mapped loopback is genuinely loopback
+    for url in (
+        "http://127.0.0.1:8080",
+        "http://[::1]:8080",
+        "http://[::ffff:127.0.0.1]:8080",
+    ):  # IPv4-mapped loopback is genuinely loopback
         try:
             parsed = validate_endpoint(url)
             evidence.append(_evid("accept", f"loopback endpoint accepted: {parsed['url']}"))
@@ -441,14 +561,19 @@ def _gate_local_only() -> GateOutcome:
             failures.append(f"loopback endpoint wrongly refused: {url}: {e.message}")
     ok = not failures
     return GateOutcome(
-        id="G6", title="Local-only operation", mandatory=True,
+        id="G6",
+        title="Local-only operation",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
-        detail=("remote inference endpoints (public IP, private-range IP, IPv4-mapped non-loopback, "
-                "DNS-lookalike) are refused before any byte leaves the process; all loopback spellings "
-                "are accepted"
-                if ok else "endpoint policy violations: " + "; ".join(failures)),
+        detail=(
+            "remote inference endpoints (public IP, private-range IP, IPv4-mapped non-loopback, "
+            "DNS-lookalike) are refused before any byte leaves the process; all loopback spellings "
+            "are accepted"
+            if ok
+            else "endpoint policy violations: " + "; ".join(failures)
+        ),
         procedure="attempt endpoint validation on remote/lookalike URLs — each must raise EndpointPolicyError; "
-                  "loopback spellings (IPv4, IPv6, IPv4-mapped loopback) must validate",
+        "loopback spellings (IPv4, IPv6, IPv4-mapped loopback) must validate",
         preconditions="none (offline-safe)",
         evidence=evidence,
     )
@@ -458,8 +583,12 @@ def _gate_local_only() -> GateOutcome:
 def _gate_evidence(settings: Settings, run_id: str | None) -> GateOutcome:
     if run_id is None:
         return GateOutcome(
-            id="G7", title="Provenance and evidence integrity", mandatory=True, status="NOT_RUN",
-            detail="skipped: no run available", procedure="verify hashes; probe tamper detection",
+            id="G7",
+            title="Provenance and evidence integrity",
+            mandatory=True,
+            status="NOT_RUN",
+            detail="skipped: no run available",
+            procedure="verify hashes; probe tamper detection",
             preconditions="G2 pass",
         )
     engine = EvaluationEngine(settings)
@@ -476,17 +605,29 @@ def _gate_evidence(settings: Settings, run_id: str | None) -> GateOutcome:
     detected = not tampered.get("ok")
     ok = verify["verified"] and detected
     return GateOutcome(
-        id="G7", title="Provenance and evidence integrity", mandatory=True,
+        id="G7",
+        title="Provenance and evidence integrity",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
-        detail=("all artifact hashes recomputed from disk match the manifest; a byte-level "
-                "tamper probe on a scratch copy was detected" if ok else
-                f"verify_run ok={verify['verified']} tamper_detected={detected}"),
+        detail=(
+            "all artifact hashes recomputed from disk match the manifest; a byte-level "
+            "tamper probe on a scratch copy was detected"
+            if ok
+            else f"verify_run ok={verify['verified']} tamper_detected={detected}"
+        ),
         procedure="verify_run (recompute every artifact digest + config digest); tamper probe on scratch copy",
         preconditions="G2 pass",
         evidence=[
-            _evid(f"artifacts/{run_id}/checksums.json", f"checked={verify['checked_artifacts']} artifacts"),
-            _evid("tamper probe", "flipped byte in scratch copy detected as mismatch"
-                  if detected else "TAMPER NOT DETECTED — integrity verification is broken"),
+            _evid(
+                f"artifacts/{run_id}/checksums.json",
+                f"checked={verify['checked_artifacts']} artifacts",
+            ),
+            _evid(
+                "tamper probe",
+                "flipped byte in scratch copy detected as mismatch"
+                if detected
+                else "TAMPER NOT DETECTED — integrity verification is broken",
+            ),
         ],
     )
 
@@ -502,8 +643,10 @@ def _gate_failure_recovery(settings: Settings, inputs: GateInputs) -> GateOutcom
         try:
             _ensure_fixture_model(engine)
             run_id = engine.create_run(
-                model_name="release-fixture", suite_path=Path(inputs.suite_path),
-                execution_mode="fixture_replay", fixture_outputs_path=Path(inputs.fixture_outputs_path),
+                model_name="release-fixture",
+                suite_path=Path(inputs.suite_path),
+                execution_mode="fixture_replay",
+                fixture_outputs_path=Path(inputs.fixture_outputs_path),
             )
             # simulate a crashed worker: RUNNING with a stale heartbeat and a dead pid
             engine.db.execute(
@@ -513,17 +656,24 @@ def _gate_failure_recovery(settings: Settings, inputs: GateInputs) -> GateOutcom
             engine.db.commit()
             recovered = engine.recover_interrupted()
             row = engine.get_run_row(run_id)
-            if recovered == [run_id] and row["status"] == "INCOMPLETE":
-                evidence.append(_evid("crash recovery",
-                                      "stale RUNNING run recovered to INCOMPLETE with prior case records preserved"))
+            status_val = row["status"] if row else None
+            if recovered == [run_id] and status_val == "INCOMPLETE":
+                evidence.append(
+                    _evid(
+                        "crash recovery",
+                        "stale RUNNING run recovered to INCOMPLETE with prior case records preserved",
+                    )
+                )
             else:
-                failures.append(f"crash recovery produced {recovered} status={row['status']}")
+                failures.append(f"crash recovery produced {recovered} status={status_val}")
 
             empty_outputs = Path(td) / "empty-outputs.json"
             empty_outputs.write_text(json.dumps({"outputs": {}}), encoding="utf-8")
             bad_id = engine.create_run(
-                model_name="release-fixture", suite_path=Path(inputs.suite_path),
-                execution_mode="fixture_replay", fixture_outputs_path=empty_outputs,
+                model_name="release-fixture",
+                suite_path=Path(inputs.suite_path),
+                execution_mode="fixture_replay",
+                fixture_outputs_path=empty_outputs,
             )
             bad_summary = engine.start_run(bad_id)
             bad_cases = engine.run_cases(bad_id, limit=1000)
@@ -535,21 +685,31 @@ def _gate_failure_recovery(settings: Settings, inputs: GateInputs) -> GateOutcom
                 and statuses
             )
             if honest:
-                evidence.append(_evid(
-                    "malformed output handling",
-                    f"empty scripted outputs → {len(bad_cases)} MODEL_ERROR/INVALID_OUTPUT cases, "
-                    f"verdict={bad_summary['verdict']} (never PASS)"))
+                evidence.append(
+                    _evid(
+                        "malformed output handling",
+                        f"empty scripted outputs → {len(bad_cases)} MODEL_ERROR/INVALID_OUTPUT cases, "
+                        f"verdict={bad_summary['verdict']} (never PASS)",
+                    )
+                )
             else:
-                failures.append(f"malformed-output run: statuses={statuses} verdict={bad_summary['verdict']}")
+                failures.append(
+                    f"malformed-output run: statuses={statuses} verdict={bad_summary['verdict']}"
+                )
         except ModelProofError as e:
             failures.append(f"probe crashed: {e.message}")
     ok = not failures
     return GateOutcome(
-        id="G8", title="Failure and recovery", mandatory=True,
+        id="G8",
+        title="Failure and recovery",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
-        detail=("crashes and malformed outputs never produce misleading successful runs: stale runs "
-                "recover to INCOMPLETE, unusable outputs become recorded model errors capped below PASS"
-                if ok else "failure-handling violations: " + "; ".join(failures)),
+        detail=(
+            "crashes and malformed outputs never produce misleading successful runs: stale runs "
+            "recover to INCOMPLETE, unusable outputs become recorded model errors capped below PASS"
+            if ok
+            else "failure-handling violations: " + "; ".join(failures)
+        ),
         procedure="fault injection in an isolated probe home: stale-heartbeat recovery + empty fixture outputs",
         preconditions="bundled suite available",
         evidence=evidence,
@@ -560,38 +720,61 @@ def _gate_failure_recovery(settings: Settings, inputs: GateInputs) -> GateOutcom
 def _gate_reproducibility(settings: Settings, run_id: str | None) -> GateOutcome:
     if run_id is None:
         return GateOutcome(
-            id="G9", title="Reproducibility", mandatory=True, status="NOT_RUN",
-            detail="skipped: no run available", procedure="export → verify → import → re-verify evidence bundle",
+            id="G9",
+            title="Reproducibility",
+            mandatory=True,
+            status="NOT_RUN",
+            detail="skipped: no run available",
+            procedure="export → verify → import → re-verify evidence bundle",
             preconditions="G2 pass",
         )
     with tempfile.TemporaryDirectory(prefix="mp-g9-") as td:
         try:
-            bundle_path = export_run_bundle(settings.artifacts_dir, run_id, Path(td) / "run.bundle.tar.gz")
+            bundle_path = export_run_bundle(
+                settings.artifacts_dir, run_id, Path(td) / "run.bundle.tar.gz"
+            )
             v1 = verify_bundle(bundle_path)
-            imported = import_run_bundle(bundle_path, Path(td) / "imported", new_run_id="g9-imported")
+            imported = import_run_bundle(
+                bundle_path, Path(td) / "imported", new_run_id="g9-imported"
+            )
             store = ArtifactStore(Path(td) / "imported")
             v2 = store.verify("g9-imported")
-            summary_ok = json.loads((Path(td) / "imported" / "g9-imported" / "summary.json").read_text())["run_id"] == "g9-imported"
+            summary_ok = (
+                json.loads((Path(td) / "imported" / "g9-imported" / "summary.json").read_text())[
+                    "run_id"
+                ]
+                == "g9-imported"
+            )
             config_ok = summary_ok
         except ModelProofError as e:
             return GateOutcome(
-                id="G9", title="Reproducibility", mandatory=True, status="FAIL",
+                id="G9",
+                title="Reproducibility",
+                mandatory=True,
+                status="FAIL",
                 detail=f"evidence bundle round-trip failed: {e.message} {e.detail or ''}",
                 procedure="export evidence bundle; verify hashes; import under a new id; re-verify",
                 preconditions="G2 pass",
             )
     ok = v1["verified"] and v2.get("ok") and imported["verified"] and config_ok
     return GateOutcome(
-        id="G9", title="Reproducibility", mandatory=True,
+        id="G9",
+        title="Reproducibility",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
-        detail=("evidence bundle round-trips: export → independent hash verification → import → "
-                "re-verification, with the verifier independent of the original inference process"
-                if ok else f"round-trip inconsistency: v1={v1['verified']} v2={v2.get('ok')}"),
+        detail=(
+            "evidence bundle round-trips: export → independent hash verification → import → "
+            "re-verification, with the verifier independent of the original inference process"
+            if ok
+            else f"round-trip inconsistency: v1={v1['verified']} v2={v2.get('ok')}"
+        ),
         procedure="export evidence bundle; verify hashes; import under a new id; re-verify",
         preconditions="G2 pass",
         evidence=[
             _evid("bundle", f"{v1['checked']} artifacts verified in-bundle"),
-            _evid("import", f"imported as 'g9-imported', {v2.get('checked')} artifacts re-verified"),
+            _evid(
+                "import", f"imported as 'g9-imported', {v2.get('checked')} artifacts re-verified"
+            ),
             _evid("rename integrity", f"config/summary rewritten consistently: {config_ok}"),
         ],
     )
@@ -612,39 +795,62 @@ def _gate_api(settings: Settings, inputs: GateInputs) -> GateOutcome:
         with TestClient(app) as client:
             r = client.get("/api/v1/health")
             (evidence if r.status_code == 200 else failures).append(
-                _evid("GET /health", f"HTTP {r.status_code}"))
-            r = client.post("/api/v1/models", json={
-                "name": "gate-api-model", "endpoint": "http://127.0.0.1:8899",
-                "notes": "gate probe",
-            })
+                _evid("GET /health", f"HTTP {r.status_code}")
+            )
+            r = client.post(
+                "/api/v1/models",
+                json={
+                    "name": "gate-api-model",
+                    "endpoint": "http://127.0.0.1:8899",
+                    "notes": "gate probe",
+                },
+            )
             (evidence if r.status_code in (200, 201) else failures).append(
-                _evid("POST /models", f"HTTP {r.status_code}"))
-            r = client.post("/api/v1/runs", json={
-                "model_name": "gate-api-model", "suite_path": str(Path(inputs.suite_path).resolve()),
-                "execution_mode": "fixture_replay", "fixture_outputs_path": str(inputs.fixture_outputs_path.resolve()),
-            })
+                _evid("POST /models", f"HTTP {r.status_code}")
+            )
+            r = client.post(
+                "/api/v1/runs",
+                json={
+                    "model_name": "gate-api-model",
+                    "suite_path": str(Path(inputs.suite_path).resolve()),
+                    "execution_mode": "fixture_replay",
+                    "fixture_outputs_path": str(inputs.fixture_outputs_path.resolve()),
+                },
+            )
             (evidence if r.status_code == 202 else failures).append(
-                _evid("POST /runs", f"HTTP {r.status_code}"))
+                _evid("POST /runs", f"HTTP {r.status_code}")
+            )
             run_id = r.json().get("run_id") if r.status_code == 202 else None
             if run_id:
                 eng = EvaluationEngine(api_settings)
                 eng.start_run(run_id)
                 r = client.get(f"/api/v1/runs/{run_id}/report")
                 (evidence if r.status_code == 200 and r.json().get("verdict") else failures).append(
-                    _evid("GET /runs/{id}/report", f"HTTP {r.status_code}"))
+                    _evid("GET /runs/{id}/report", f"HTTP {r.status_code}")
+                )
                 r = client.post(f"/api/v1/runs/{run_id}/verify")
-                (evidence if r.status_code == 200 and r.json().get("verified") else failures).append(
-                    _evid("POST /runs/{id}/verify", f"HTTP {r.status_code} verified={r.json().get('verified')}"))
+                (
+                    evidence if r.status_code == 200 and r.json().get("verified") else failures
+                ).append(
+                    _evid(
+                        "POST /runs/{id}/verify",
+                        f"HTTP {r.status_code} verified={r.json().get('verified')}",
+                    )
+                )
             r = client.get("/api/v1/nonexistent")
             (evidence if r.status_code == 404 else failures).append(
-                _evid("error semantics", f"unknown endpoint → HTTP {r.status_code} (stable errors)"))
+                _evid("error semantics", f"unknown endpoint → HTTP {r.status_code} (stable errors)")
+            )
     ok = not failures
     return GateOutcome(
-        id="G10", title="API and UI", mandatory=True,
+        id="G10",
+        title="API and UI",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
         detail="typed API endpoints behave consistently: health, model registration, run creation, "
-               "report retrieval, evidence verification, stable error codes"
-        if ok else "API failures: " + "; ".join(e["ref"] for e in failures),
+        "report retrieval, evidence verification, stable error codes"
+        if ok
+        else "API failures: " + "; ".join(e["ref"] for e in failures),
         procedure="exercise the versioned API end-to-end against a fresh probe home",
         preconditions="none",
         evidence=evidence + failures,
@@ -653,9 +859,15 @@ def _gate_api(settings: Settings, inputs: GateInputs) -> GateOutcome:
 
 # --------------------------------------------------------- G11  documentation
 _DOC_REFS = [
-    "README.md", "SECURITY.md", "docs/architecture.md", "docs/threat-model.md",
-    "docs/evaluation-methodology.md", "docs/provenance-policy.md", "docs/reproducibility.md",
-    "docs/IMPLEMENTATION_AUDIT.md", "docs/RELEASE_GATES.md",
+    "README.md",
+    "SECURITY.md",
+    "docs/architecture.md",
+    "docs/threat-model.md",
+    "docs/evaluation-methodology.md",
+    "docs/provenance-policy.md",
+    "docs/reproducibility.md",
+    "docs/IMPLEMENTATION_AUDIT.md",
+    "docs/RELEASE_GATES.md",
 ]
 
 
@@ -670,7 +882,9 @@ def _gate_documentation() -> GateOutcome:
             missing.append(rel)
     ok = not missing
     return GateOutcome(
-        id="G11", title="Documentation and maintainability", mandatory=True,
+        id="G11",
+        title="Documentation and maintainability",
+        mandatory=True,
         status="PASS" if ok else "FAIL",
         detail="required documentation present" if ok else f"missing: {missing}",
         procedure="check required docs exist and are non-trivial",
@@ -687,14 +901,22 @@ def _gate_qualification(gates: list[GateOutcome]) -> GateOutcome:
     if fails:
         status, detail = "FAIL", f"mandatory gates failed: {fails}"
     elif blocked:
-        status, detail = "BLOCKED", (
-            f"mandatory gates blocked in this environment: {blocked}. The system remains usable "
-            "for what was verified (orchestration, statistics, evidence, API/UI, refusal paths); "
-            "release qualification requires completing the blocked gates in a capable environment.")
+        status, detail = (
+            "BLOCKED",
+            (
+                f"mandatory gates blocked in this environment: {blocked}. The system remains usable "
+                "for what was verified (orchestration, statistics, evidence, API/UI, refusal paths); "
+                "release qualification requires completing the blocked gates in a capable environment."
+            ),
+        )
     else:
         status, detail = "PASS", "all mandatory gates passed with recorded evidence"
     return GateOutcome(
-        id="G12", title="Release qualification", mandatory=True, status=status, detail=detail,
+        id="G12",
+        title="Release qualification",
+        mandatory=True,
+        status=status,
+        detail=detail,
         procedure="aggregate mandatory gate outcomes (G1–G11)",
         preconditions="G1–G11 executed",
         evidence=[_evid(g.id, f"{g.status}: {g.title}") for g in mandatory],
@@ -749,14 +971,24 @@ def load_release_report(settings: Settings) -> dict | None:
 
 
 # ------------------------------------------------------------------ rendering
-_STATUS_COLORS = {"PASS": "#1a7f37", "FAIL": "#cf222e", "BLOCKED": "#9a6700",
-                  "NOT_RUN": "#57606a", "NOT_APPLICABLE": "#57606a"}
+_STATUS_COLORS = {
+    "PASS": "#1a7f37",
+    "FAIL": "#cf222e",
+    "BLOCKED": "#9a6700",
+    "NOT_RUN": "#57606a",
+    "NOT_APPLICABLE": "#57606a",
+}
 
 
 def _esc(v) -> str:
     s = str(v if v is not None else "")
-    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-             .replace('"', "&quot;").replace("'", "&#39;"))
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 
 def render_release_html(report: dict) -> str:
@@ -769,10 +1001,10 @@ def render_release_html(report: dict) -> str:
         )
         rows.append(f"""
         <tr>
-          <td><b>{_esc(g['id'])}</b></td>
-          <td>{_esc(g['title'])}{'<span class="mand">mandatory</span>' if g['mandatory'] else ''}</td>
-          <td><span class="badge" style="background:{color}">{_esc(g['status'])}</span></td>
-          <td>{_esc(g['detail'])}</td>
+          <td><b>{_esc(g["id"])}</b></td>
+          <td>{_esc(g["title"])}{'<span class="mand">mandatory</span>' if g["mandatory"] else ""}</td>
+          <td><span class="badge" style="background:{color}">{_esc(g["status"])}</span></td>
+          <td>{_esc(g["detail"])}</td>
           <td><ul class="ev">{ev}</ul></td>
         </tr>""")
     return f"""<!DOCTYPE html>
@@ -786,12 +1018,12 @@ def render_release_html(report: dict) -> str:
  .ev{{margin:0;padding-left:1rem}} .note{{color:#57606a;font-size:.8rem}}
  code{{background:#f6f8fa;padding:.05rem .25rem;border-radius:.3rem;font-size:.8em}}
 </style></head><body>
-<h1>ModelProof release qualification — {_esc(report.get('verdict'))}</h1>
-<p class="note">generated {_esc(report.get('generated_at'))} · engine {_esc(report.get('engine_version'))}
- · {_esc(report.get('host', {}).get('platform', ''))}</p>
+<h1>ModelProof release qualification — {_esc(report.get("verdict"))}</h1>
+<p class="note">generated {_esc(report.get("generated_at"))} · engine {_esc(report.get("engine_version"))}
+ · {_esc(report.get("host", {}).get("platform", ""))}</p>
 <table><thead><tr><th>Gate</th><th>Title</th><th>Status</th><th>Detail</th><th>Evidence</th></tr></thead>
-<tbody>{''.join(rows)}</tbody></table>
-<h2>Notes</h2><ul>{''.join(f'<li class="note">{_esc(n)}</li>' for n in report.get('notes', []))}</ul>
+<tbody>{"".join(rows)}</tbody></table>
+<h2>Notes</h2><ul>{"".join(f'<li class="note">{_esc(n)}</li>' for n in report.get("notes", []))}</ul>
 <p class="note">A release can be technically useful while still failing qualification. This report
 distinguishes what was verified on this machine from what merely appears to work.</p>
 </body></html>"""

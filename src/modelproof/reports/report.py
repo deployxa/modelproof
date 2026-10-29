@@ -8,11 +8,10 @@ Security rules for report rendering:
     and first-line error summaries;
   * a fixture run renders a prominent, unmissable FIXTURE banner.
 """
+
 from __future__ import annotations
 
 import html
-import json
-
 
 _CSS = """
 :root { color-scheme: light; }
@@ -63,7 +62,7 @@ def _esc(v) -> str:
     return html.escape(str(v if v is not None else "—"), quote=True)
 
 
-def _badge(value: str) -> str:
+def _badge(value: object) -> str:
     return f'<span class="badge b-{_esc(value)}">{_esc(value)}</span>'
 
 
@@ -71,20 +70,28 @@ def render_html(summary: dict, case_rows, gates, checksum_manifest: dict) -> str
     is_fixture = bool(summary.get("is_fixture"))
     fixture_banner = (
         '<div class="fixture-banner">FIXTURE RUN — scripted outputs with replayed outcomes. '
-        'No model ran and no code executed in a sandbox. This report demonstrates the pipeline '
-        'and supports NO claim about any model.</div>'
-        if is_fixture else ""
+        "No model ran and no code executed in a sandbox. This report demonstrates the pipeline "
+        "and supports NO claim about any model.</div>"
+        if is_fixture
+        else ""
     )
 
     metrics_rows = [
         ("Task pass rate", _fmt_rate(summary.get("pass_rate"))),
-        ("Pass-rate numerator / denominator",
-         f"{_esc(summary.get('pass_rate_numerator'))} / {_esc(summary.get('pass_rate_denominator'))}"),
+        (
+            "Pass-rate numerator / denominator",
+            f"{_esc(summary.get('pass_rate_numerator'))} / {_esc(summary.get('pass_rate_denominator'))}",
+        ),
         ("Full-suite completion rate", _fmt_rate(summary.get("completion_rate"))),
         ("Wilson 95% CI", _fmt_ci(summary.get("wilson95"))),
-        ("Passed / failed / timed out", f"{summary.get('passed')} / {summary.get('failed')} / {summary.get('timeouts')}"),
-        ("Invalid outputs / model errors / sandbox errors",
-         f"{summary.get('invalid_outputs')} / {summary.get('model_errors')} / {summary.get('sandbox_errors')}"),
+        (
+            "Passed / failed / timed out",
+            f"{summary.get('passed')} / {summary.get('failed')} / {summary.get('timeouts')}",
+        ),
+        (
+            "Invalid outputs / model errors / sandbox errors",
+            f"{summary.get('invalid_outputs')} / {summary.get('model_errors')} / {summary.get('sandbox_errors')}",
+        ),
     ]
     cat_rows = "".join(
         f"<tr><td>{_esc(cat)}</td><td>{_fmt_rate(rate)}</td></tr>"
@@ -119,18 +126,18 @@ def render_html(summary: dict, case_rows, gates, checksum_manifest: dict) -> str
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ModelProof report — {_esc(summary.get('run_id'))}</title>
+<title>ModelProof report — {_esc(summary.get("run_id"))}</title>
 <style>{_CSS}</style></head>
 <body><div class="wrap">
-<h1>ModelProof evaluation report <span class="mono note">{_esc(summary.get('run_id'))}</span></h1>
-<p>{_badge(summary.get('status'))} {_badge(summary.get('verdict'))}
-   <span class="note">suite {_esc(summary.get('suite_id'))} v{_esc(summary.get('suite_version'))}
-   · model {_esc(summary.get('model_name'))}</span></p>
+<h1>ModelProof evaluation report <span class="mono note">{_esc(summary.get("run_id"))}</span></h1>
+<p>{_badge(summary.get("status"))} {_badge(summary.get("verdict"))}
+   <span class="note">suite {_esc(summary.get("suite_id"))} v{_esc(summary.get("suite_version"))}
+   · model {_esc(summary.get("model_name"))}</span></p>
 {fixture_banner}
-<div class="explain">{_esc(summary.get('verdict_explanation'))}</div>
+<div class="explain">{_esc(summary.get("verdict_explanation"))}</div>
 
 <h2>Headline metrics</h2>
-<table class="kv">{''.join(f'<tr><td>{k}</td><td class="mono">{v}</td></tr>' for k, v in metrics_rows)}</table>
+<table class="kv">{"".join(f'<tr><td>{k}</td><td class="mono">{v}</td></tr>' for k, v in metrics_rows)}</table>
 
 <h2>Category pass rates</h2>
 <table><tr><th>Category</th><th>Pass rate (valid outcomes)</th></tr>{cat_rows}</table>
@@ -150,13 +157,13 @@ Private acceptance-test contents are not reproduced here; only check names and t
 
 <h2>Provenance</h2>
 <table class="kv">
-<tr><td>Suite content hash (SHA-256)</td><td class="mono">{_esc(summary.get('suite_content_hash'))}</td></tr>
-<tr><td>Run configuration hash</td><td class="mono">{_esc(summary.get('config_hash'))}</td></tr>
-<tr><td>Prompt template hash</td><td class="mono">{_esc(summary.get('prompt_template_hash'))}</td></tr>
-<tr><td>Suite provenance status</td><td>{_badge(summary.get('provenance_status'))}</td></tr>
-<tr><td>Leakage scan</td><td>{_esc(summary.get('leakage'))}</td></tr>
-<tr><td>Environment</td><td class="mono">{_esc(_env(summary.get('environment')))}</td></tr>
-<tr><td>Started / ended</td><td class="mono">{_esc(summary.get('started_at'))} → {_esc(summary.get('ended_at'))}</td></tr>
+<tr><td>Suite content hash (SHA-256)</td><td class="mono">{_esc(summary.get("suite_content_hash"))}</td></tr>
+<tr><td>Run configuration hash</td><td class="mono">{_esc(summary.get("config_hash"))}</td></tr>
+<tr><td>Prompt template hash</td><td class="mono">{_esc(summary.get("prompt_template_hash"))}</td></tr>
+<tr><td>Suite provenance status</td><td>{_badge(summary.get("provenance_status"))}</td></tr>
+<tr><td>Leakage scan</td><td>{_esc(summary.get("leakage"))}</td></tr>
+<tr><td>Environment</td><td class="mono">{_esc(_env(summary.get("environment")))}</td></tr>
+<tr><td>Started / ended</td><td class="mono">{_esc(summary.get("started_at"))} → {_esc(summary.get("ended_at"))}</td></tr>
 </table>
 <div class="warnbox">A hash establishes artifact <b>identity</b>, not correctness, authorship, or
 independence from training data. Suite independence is <b>INDEPENDENCE_UNVERIFIED</b> unless a
@@ -164,7 +171,7 @@ documented contamination audit says otherwise.</div>
 
 <h2>Artifact checksums (SHA-256)</h2>
 <table><tr><th>Artifact</th><th>SHA-256 (prefix)</th><th>Bytes</th></tr>{artifact_rows}</table>
-<p class="note">Recompute independently: <code>modelproof run verify {_esc(summary.get('run_id'))}</code>
+<p class="note">Recompute independently: <code>modelproof run verify {_esc(summary.get("run_id"))}</code>
 or <code>sha256sum</code> over the artifact directory against <code>checksums.json</code>.</p>
 
 <h2>Limitations</h2>

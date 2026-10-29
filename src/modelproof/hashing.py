@@ -3,6 +3,7 @@
 A hash establishes artifact *identity*, not correctness, authorship, or
 independence from training data (spec §4). All digests are SHA-256.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -75,7 +76,9 @@ def atomic_write_text(path: Path, text: str) -> None:
 
 
 def atomic_write_json(path: Path, obj) -> None:
-    atomic_write_bytes(path, (json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"))
+    atomic_write_bytes(
+        path, (json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+    )
 
 
 def safe_relative_path(root: Path, rel: str) -> Path:

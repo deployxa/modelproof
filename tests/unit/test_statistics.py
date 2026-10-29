@@ -1,13 +1,15 @@
 """Statistics correctness (Gate F) — pinned against independently computed
 reference values and an alternative in-test implementation of the Wilson
 interval."""
+
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from modelproof.errors import InvalidInputError
-from modelproof.statistics.stats import aggregate, completion_rate, pass_rate, wilson_interval, Z_95
+from modelproof.statistics.stats import Z_95, aggregate, completion_rate, pass_rate, wilson_interval
 
 
 def wilson_reference_implementation(k: int, n: int, z: float = Z_95):
@@ -25,7 +27,9 @@ def wilson_reference_implementation(k: int, n: int, z: float = Z_95):
 class TestWilsonReferenceValues:
     """Reference values computed independently (pocket-calculator algebra)."""
 
-    @pytest.mark.parametrize("k,n", [(0, 10), (5, 10), (10, 10), (1, 1), (3, 7), (81, 263), (0, 24), (18, 24)])
+    @pytest.mark.parametrize(
+        "k,n", [(0, 10), (5, 10), (10, 10), (1, 1), (3, 7), (81, 263), (0, 24), (18, 24)]
+    )
     def test_matches_reference_implementation(self, k, n):
         got = wilson_interval(k, n - k)
         want = wilson_reference_implementation(k, n)
@@ -77,8 +81,14 @@ class TestAggregation:
         return {t: default for t in outcomes}
 
     def test_counts_and_rates(self):
-        outcomes = {f"t{i}": s for i, s in enumerate(
-            ["PASSED"] * 6 + ["FAILED"] * 2 + ["TIMEOUT", "INVALID_OUTPUT", "MODEL_ERROR", "SANDBOX_ERROR"])}
+        outcomes = {
+            f"t{i}": s
+            for i, s in enumerate(
+                ["PASSED"] * 6
+                + ["FAILED"] * 2
+                + ["TIMEOUT", "INVALID_OUTPUT", "MODEL_ERROR", "SANDBOX_ERROR"]
+            )
+        }
         agg = aggregate(outcomes, self._cats(outcomes))
         # valid outcomes exclude the infrastructure (SANDBOX_ERROR) case
         assert agg["pass_rate_numerator"] == 6
@@ -91,8 +101,8 @@ class TestAggregation:
     def test_infrastructure_failures_never_inflate_scores(self):
         outcomes = {"a": "SANDBOX_ERROR", "b": "SANDBOX_ERROR", "c": "PASSED"}
         agg = aggregate(outcomes, self._cats(outcomes))
-        assert agg["pass_rate"] == pytest.approx(1.0)          # 1/1 valid
-        assert agg["completion_rate"] == pytest.approx(1.0)    # all terminal
+        assert agg["pass_rate"] == pytest.approx(1.0)  # 1/1 valid
+        assert agg["completion_rate"] == pytest.approx(1.0)  # all terminal
         assert agg["sandbox_errors"] == 2
 
     def test_category_rates(self):

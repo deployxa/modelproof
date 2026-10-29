@@ -13,6 +13,7 @@ acceptable inference target:
 `localhost` is accepted only after resolving it and verifying that *every*
 resolved address is loopback — we do not silently trust arbitrary DNS.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -39,7 +40,7 @@ def _resolve_host(hostname: str) -> list[str]:
         infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror as e:
         raise EndpointPolicyError(f"cannot resolve inference host {hostname!r}: {e}") from e
-    return sorted({info[4][0] for info in infos})
+    return sorted({str(info[4][0]) for info in infos})
 
 
 def validate_endpoint(url: str, *, resolve_dns: bool = True) -> dict:
@@ -74,7 +75,9 @@ def validate_endpoint(url: str, *, resolve_dns: bool = True) -> dict:
                 f"refusing non-local inference host {host!r}; only loopback literals or 'localhost' are accepted"
             )
         if not resolve_dns:
-            raise EndpointPolicyError("hostname resolution disabled and host is not a loopback literal")
+            raise EndpointPolicyError(
+                "hostname resolution disabled and host is not a loopback literal"
+            )
         resolved = _resolve_host(host)
         if not resolved or not all(_is_loopback_ip(ip) for ip in resolved):
             raise EndpointPolicyError(

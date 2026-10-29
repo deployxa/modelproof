@@ -13,6 +13,7 @@ a locally running llama.cpp server. Hard rules enforced here:
   * the adapter is replaceable without touching the evaluation engine: anything
     implementing `generate(GenerationRequest) -> ModelOutput` works.
 """
+
 from __future__ import annotations
 
 import time
@@ -64,7 +65,9 @@ class OpenAICompatibleAdapter(ModelAdapter):
             # Re-validate the full URL each hop (defense in depth; cheap).
             hop_parsed = validate_endpoint(url)
             if hop_parsed["host"] != current["host"] or hop_parsed["port"] != current["port"]:
-                raise EndpointPolicyError("redirect changed host or port away from validated loopback target")
+                raise EndpointPolicyError(
+                    "redirect changed host or port away from validated loopback target"
+                )
             with self._client() as client:
                 resp = client.post(url, json=payload)
             if resp.is_redirect:
@@ -83,7 +86,11 @@ class OpenAICompatibleAdapter(ModelAdapter):
                 resp = client.get(url)
         except httpx.HTTPError as e:
             return {"ok": False, "endpoint": self.endpoint, "error": f"{type(e).__name__}: {e}"}
-        return {"ok": resp.status_code < 500, "endpoint": self.endpoint, "status_code": resp.status_code}
+        return {
+            "ok": resp.status_code < 500,
+            "endpoint": self.endpoint,
+            "status_code": resp.status_code,
+        }
 
     def generate(self, request: GenerationRequest) -> ModelOutput:
         started = time.monotonic()
@@ -99,14 +106,18 @@ class OpenAICompatibleAdapter(ModelAdapter):
             raise
         except httpx.HTTPError as e:
             return ModelOutput(
-                text="", backend=self.name, endpoint=self.endpoint,
+                text="",
+                backend=self.name,
+                endpoint=self.endpoint,
                 error=f"inference connection error: {type(e).__name__}: {e}",
                 elapsed_s=time.monotonic() - started,
             )
         elapsed = time.monotonic() - started
         if resp.status_code != 200:
             return ModelOutput(
-                text="", backend=self.name, endpoint=self.endpoint,
+                text="",
+                backend=self.name,
+                endpoint=self.endpoint,
                 error=f"inference endpoint returned HTTP {resp.status_code}",
                 elapsed_s=elapsed,
             )
@@ -114,7 +125,9 @@ class OpenAICompatibleAdapter(ModelAdapter):
             body = resp.json()
         except ValueError:
             return ModelOutput(
-                text="", backend=self.name, endpoint=self.endpoint,
+                text="",
+                backend=self.name,
+                endpoint=self.endpoint,
                 error="inference endpoint returned malformed JSON",
                 elapsed_s=elapsed,
             )
@@ -122,14 +135,18 @@ class OpenAICompatibleAdapter(ModelAdapter):
             choices = body.get("choices") or []
             if not choices:
                 return ModelOutput(
-                    text="", backend=self.name, endpoint=self.endpoint,
+                    text="",
+                    backend=self.name,
+                    endpoint=self.endpoint,
                     error="inference response missing choices[0].message.content",
                     elapsed_s=elapsed,
                 )
             text = str(choices[0].get("message", {}).get("content", ""))
         except (AttributeError, IndexError, TypeError):
             return ModelOutput(
-                text="", backend=self.name, endpoint=self.endpoint,
+                text="",
+                backend=self.name,
+                endpoint=self.endpoint,
                 error="inference response missing choices[0].message.content",
                 elapsed_s=elapsed,
             )
@@ -161,13 +178,20 @@ class ScriptedAdapter(ModelAdapter):
         self.calls: list[GenerationRequest] = []
 
     def healthcheck(self) -> dict:
-        return {"ok": True, "endpoint": None, "adapter": self.name, "note": "scripted fixture adapter (not a model)"}
+        return {
+            "ok": True,
+            "endpoint": None,
+            "adapter": self.name,
+            "note": "scripted fixture adapter (not a model)",
+        }
 
     def generate(self, request: GenerationRequest) -> ModelOutput:
         self.calls.append(request)
         if request.task_id not in self.outputs:
             return ModelOutput(
-                text="", backend=self.name, server_model_id=self.server_model_id,
+                text="",
+                backend=self.name,
+                server_model_id=self.server_model_id,
                 error=f"scripted fixture has no output for task {request.task_id!r}",
                 elapsed_s=0.0,
             )

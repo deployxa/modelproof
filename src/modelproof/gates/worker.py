@@ -9,6 +9,7 @@ Fix: the API (and any embedded caller) executes this module in a fresh
 process; the parent reads the JSON report from stdout. A gate crash then
 cannot corrupt API state, and the API can enforce a hard timeout.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,9 +27,13 @@ def main(argv: list[str]) -> int:
 
     settings = Settings(home=home) if home else Settings()
     settings.ensure_dirs()
-    report = run_release_gates(settings, GateInputs(
-        suite_path=suite_path, fixture_outputs_path=fixture_outputs_path,
-    ))
+    report = run_release_gates(
+        settings,
+        GateInputs(
+            suite_path=suite_path,
+            fixture_outputs_path=fixture_outputs_path,
+        ),
+    )
     json.dump(report, sys.stdout)
     sys.stdout.write("\n")
     return 0

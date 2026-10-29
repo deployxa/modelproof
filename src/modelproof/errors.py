@@ -3,8 +3,8 @@
 Exit codes (documented contract, see docs/reproducibility.md):
   0 ok | 2 invalid input | 3 evaluation failed | 4 integrity failure | 5 infrastructure error
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 EXIT_OK = 0
 EXIT_INVALID_INPUT = 2

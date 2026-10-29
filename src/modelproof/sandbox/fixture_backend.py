@@ -12,6 +12,7 @@ declared purposes only:
 
 Runs using this backend never contribute real benchmark evidence.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,7 +58,9 @@ class FixtureReplayBackend(ExecutionBackend):
                 {"name": name, "error": "(recorded fixture outcome — error text not replayed)"}
                 for name in outcome.get("failed_checks", [])
             ],
-            "import_error": outcome.get("detail") if outcome.get("class") in ("syntax_error", "import_error") else None,
+            "import_error": outcome.get("detail")
+            if outcome.get("class") in ("syntax_error", "import_error")
+            else None,
             "fixture": True,
         }
         timed_out = status == "TIMEOUT"
@@ -67,7 +70,8 @@ class FixtureReplayBackend(ExecutionBackend):
             exit_code=None if timed_out else (0 if status == "PASSED" else 1),
             stdout=(
                 "MODELPROOF_RESULT_BEGIN\n" + blob + "\nMODELPROOF_RESULT_END\n"
-                if not timed_out else "(fixture replay: timeout recorded dev-side)"
+                if not timed_out
+                else "(fixture replay: timeout recorded dev-side)"
             ),
             stderr="",
             duration_ms=0,

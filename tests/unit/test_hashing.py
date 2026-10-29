@@ -1,4 +1,5 @@
 """Hashing, atomic writes, path containment, and symlink-escape rejection."""
+
 from __future__ import annotations
 
 import os
@@ -7,8 +8,12 @@ from pathlib import Path
 import pytest
 
 from modelproof.hashing import (
-    atomic_write_bytes, digest_obj, normalize_text, safe_relative_path,
-    sha256_bytes, sha256_text,
+    atomic_write_bytes,
+    digest_obj,
+    normalize_text,
+    safe_relative_path,
+    sha256_bytes,
+    sha256_text,
 )
 
 

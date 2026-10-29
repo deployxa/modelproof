@@ -1,4 +1,5 @@
 """Loopback-only endpoint policy (spec §10.1) — the local-only contract."""
+
 from __future__ import annotations
 
 import pytest
@@ -29,21 +30,24 @@ class TestAccepted:
 
 
 class TestRejected:
-    @pytest.mark.parametrize("url", [
-        "http://example.com/v1",
-        "http://api.openai.com/v1",
-        "https://huggingface.co",
-        "http://8.8.8.8/",
-        "http://192.168.1.10:8080",      # private but NOT loopback
-        "http://10.0.0.1/",
-        "ftp://127.0.0.1/",
-        "file:///etc/passwd",
-        "gopher://localhost",
-        "http://user:pass@127.0.0.1:8080",  # credentials
-        "http://127.0.0.1:8080/path?x=1",   # query strings not accepted
-        "",
-        "not a url",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://example.com/v1",
+            "http://api.openai.com/v1",
+            "https://huggingface.co",
+            "http://8.8.8.8/",
+            "http://192.168.1.10:8080",  # private but NOT loopback
+            "http://10.0.0.1/",
+            "ftp://127.0.0.1/",
+            "file:///etc/passwd",
+            "gopher://localhost",
+            "http://user:pass@127.0.0.1:8080",  # credentials
+            "http://127.0.0.1:8080/path?x=1",  # query strings not accepted
+            "",
+            "not a url",
+        ],
+    )
     def test_rejected_targets(self, url):
         with pytest.raises(EndpointPolicyError):
             validate_endpoint(url)

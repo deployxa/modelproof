@@ -21,6 +21,7 @@ SandboxUnavailableError — never a silent downgrade (spec §10.3).
 Docker is treated as risk reduction, not a perfect boundary; see
 docs/threat-model.md for the residual container-escape risk.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,7 +34,9 @@ from pathlib import Path
 from ..errors import SandboxUnavailableError
 from .base import ExecutionBackend, ExecutionBundle, ExecutionOutcome, SandboxLimits
 
-DEFAULT_IMAGE = "python:3.12-slim"
+DEFAULT_IMAGE_NAME = "python:3.12-slim"
+DEFAULT_IMAGE_DIGEST = "sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159"
+DEFAULT_IMAGE = f"{DEFAULT_IMAGE_NAME}@{DEFAULT_IMAGE_DIGEST}"
 SANDBOX_UID_GID = "65534:65534"  # nobody:nogroup
 
 
@@ -51,7 +54,9 @@ class DockerBackend(ExecutionBackend):
         try:
             proc = subprocess.run(
                 [self.docker_cmd, "info", "--format", "{{.ServerVersion}}"],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             return False, f"docker daemon unreachable: {e}"
@@ -65,8 +70,18 @@ class DockerBackend(ExecutionBackend):
     def _image_present(self) -> tuple[bool, str]:
         proc = subprocess.run(
             [self.docker_cmd, "image", "inspect", self.image, "--format", "{{.Id}}"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
+        if proc.returncode != 0 and "@" in self.image:
+            base_tag = self.image.split("@")[0]
+            proc = subprocess.run(
+                [self.docker_cmd, "image", "inspect", base_tag, "--format", "{{.Id}}"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
         if proc.returncode != 0:
             return False, (
                 f"sandbox image {self.image!r} not present locally; ModelProof never pulls "
@@ -74,19 +89,34 @@ class DockerBackend(ExecutionBackend):
             )
         return True, proc.stdout.strip()
 
-    def image_identity(self) -> dict:
+    def image_identity(self) -> dict[str, object]:
         proc = subprocess.run(
             [self.docker_cmd, "image", "inspect", self.image],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
+        if proc.returncode != 0 and "@" in self.image:
+            base_tag = self.image.split("@")[0]
+            proc = subprocess.run(
+                [self.docker_cmd, "image", "inspect", base_tag],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
         if proc.returncode != 0:
             return {"image": self.image, "digest": None, "note": "image not inspectable"}
         data = json.loads(proc.stdout)[0]
+        repo_digests = data.get("RepoDigests") or []
+        is_pinned = "@" in self.image
         return {
             "image": self.image,
             "id": data.get("Id"),
-            "repo_digests": data.get("RepoDigests") or [],
-            "note": "a mutable tag does not by itself provide immutable reproducibility",
+            "repo_digests": repo_digests,
+            "pinned": is_pinned,
+            "note": "pinned by immutable digest"
+            if is_pinned
+            else "a mutable tag does not by itself provide immutable reproducibility",
         }
 
     # ----------------------------------------------------------------- execution
@@ -109,26 +139,44 @@ class DockerBackend(ExecutionBackend):
                 self._verify_runtime_config(container, limits)
                 return self._run_container(container, limits)
             finally:
-                subprocess.run([self.docker_cmd, "rm", "-f", container], capture_output=True, timeout=20)
+                subprocess.run(
+                    [self.docker_cmd, "rm", "-f", container], capture_output=True, timeout=20
+                )
 
-    def _create_container(self, host_bundle: Path, bundle: ExecutionBundle, limits: SandboxLimits) -> str:
+    def _create_container(
+        self, host_bundle: Path, bundle: ExecutionBundle, limits: SandboxLimits
+    ) -> str:
         work_mount = f"{host_bundle}:/work:ro"
         cmd = [
-            self.docker_cmd, "create",
-            "--network", "none",
-            "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
+            self.docker_cmd,
+            "create",
+            "--network",
+            "none",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
             "--read-only",
-            "--user", SANDBOX_UID_GID,
-            "--memory", f"{limits.memory_mb}m",
-            "--memory-swap", f"{limits.memory_mb}m",
-            "--cpus", str(limits.cpus),
-            "--pids-limit", str(limits.pids_limit),
-            "--tmpfs", f"/scratch:rw,size={limits.tmpfs_size_mb}m,noexec,nosuid",
-            "--workdir", "/scratch",
-            "--volume", work_mount,
-            "--env", "PYTHONDONTWRITEBYTECODE=1",
-            "--env", f"MP_BUNDLE_ROOT=/work",
+            "--user",
+            SANDBOX_UID_GID,
+            "--memory",
+            f"{limits.memory_mb}m",
+            "--memory-swap",
+            f"{limits.memory_mb}m",
+            "--cpus",
+            str(limits.cpus),
+            "--pids-limit",
+            str(limits.pids_limit),
+            "--tmpfs",
+            f"/scratch:rw,size={limits.tmpfs_size_mb}m,noexec,nosuid",
+            "--workdir",
+            "/scratch",
+            "--volume",
+            work_mount,
+            "--env",
+            "PYTHONDONTWRITEBYTECODE=1",
+            "--env",
+            "MP_BUNDLE_ROOT=/work",
             self.image,
             *bundle.command,
         ]
@@ -170,7 +218,11 @@ class DockerBackend(ExecutionBackend):
             if "docker.sock" in bind:
                 problems.append(f"docker socket mounted: {bind}")
         expected_bind = "/work"
-        if not any(b.endswith(expected_bind) or (len(b.split(":")) >= 2 and b.split(":")[1] == expected_bind) for b in mounts):
+        if not any(
+            b.endswith(expected_bind)
+            or (len(b.split(":")) >= 2 and b.split(":")[1] == expected_bind)
+            for b in mounts
+        ):
             problems.append(f"bundle mount missing: {mounts}")
         if problems:
             raise SandboxUnavailableError(
@@ -194,16 +246,28 @@ class DockerBackend(ExecutionBackend):
         try:
             proc = subprocess.run(
                 [self.docker_cmd, "start", "-a", container],
-                capture_output=True, text=True, timeout=limits.timeout_s + 5,
+                capture_output=True,
+                text=True,
+                timeout=limits.timeout_s + 5,
             )
             exit_code = proc.returncode
             stdout, stderr = proc.stdout, proc.stderr
         except subprocess.TimeoutExpired as e:
             timed_out = True
             exit_code = None
-            stdout = (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-            stderr = (e.stderr or b"").decode("utf-8", "replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
-            subprocess.run([self.docker_cmd, "stop", "-t", "1", container], capture_output=True, timeout=15)
+            stdout = (
+                (e.stdout or b"").decode("utf-8", "replace")
+                if isinstance(e.stdout, bytes)
+                else (e.stdout or "")
+            )
+            stderr = (
+                (e.stderr or b"").decode("utf-8", "replace")
+                if isinstance(e.stderr, bytes)
+                else (e.stderr or "")
+            )
+            subprocess.run(
+                [self.docker_cmd, "stop", "-t", "1", container], capture_output=True, timeout=15
+            )
         duration_ms = int((time.monotonic() - started) * 1000)
 
         truncated = False

@@ -1,6 +1,7 @@
 """Core data contracts (spec §7). Pydantic models are the single source of truth
 shared by the engine, CLI, and API. Raw model output is stored separately from
 normalized scoring data."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -25,11 +26,13 @@ class RunStatus(str, Enum):
 
 
 class Verdict(str, Enum):
-    PASS = "PASS"                        # execution/integrity gates passed — NOT a capability certificate
-    FAIL = "FAIL"                        # a defined required gate failed
-    INCOMPLETE = "INCOMPLETE"            # run did not evaluate all required cases
-    INVALID = "INVALID"                  # evidence/configuration internally inconsistent
-    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"  # valid run, evidence cannot support requested conclusion
+    PASS = "PASS"  # execution/integrity gates passed — NOT a capability certificate
+    FAIL = "FAIL"  # a defined required gate failed
+    INCOMPLETE = "INCOMPLETE"  # run did not evaluate all required cases
+    INVALID = "INVALID"  # evidence/configuration internally inconsistent
+    INSUFFICIENT_EVIDENCE = (
+        "INSUFFICIENT_EVIDENCE"  # valid run, evidence cannot support requested conclusion
+    )
 
 
 class CaseStatus(str, Enum):
@@ -38,7 +41,7 @@ class CaseStatus(str, Enum):
     TIMEOUT = "TIMEOUT"
     INVALID_OUTPUT = "INVALID_OUTPUT"
     MODEL_ERROR = "MODEL_ERROR"
-    SANDBOX_ERROR = "SANDBOX_ERROR"      # infrastructure failure — never counted as model failure
+    SANDBOX_ERROR = "SANDBOX_ERROR"  # infrastructure failure — never counted as model failure
 
 
 class TaskCategory(str, Enum):
@@ -68,10 +71,12 @@ class TaskSpec(BaseModel):
     memory_limit_mb: int = Field(default=256, ge=32, le=2048)
     scoring_rule: str = "all_private_checks_must_pass"
     provenance: dict[str, Any]
-    content_digest: str | None = None   # computed at validation time over task files
+    content_digest: str | None = None  # computed at validation time over task files
     starter_relpath: str = "starter.py"
-    solution_relpath: str = "solution.py"          # reference solution; never sent to the model
-    checks_relpath: str = "../../tests_private"    # resolved against suite layout policy, not shipped in prompts
+    solution_relpath: str = "solution.py"  # reference solution; never sent to the model
+    checks_relpath: str = (
+        "../../tests_private"  # resolved against suite layout policy, not shipped in prompts
+    )
 
     @field_validator("id")
     @classmethod
@@ -97,7 +102,7 @@ class SuiteManifest(BaseModel):
     tasks: list[TaskEntry] = Field(min_length=1)
     provenance_status: ProvenanceStatus = ProvenanceStatus.INDEPENDENCE_UNVERIFIED
     provenance_declaration: dict[str, Any]
-    content_hash: str | None = None     # computed over all task files at validation
+    content_hash: str | None = None  # computed over all task files at validation
     minimum_completion_rate: float = 0.8
 
 
@@ -120,12 +125,14 @@ class ModelWeightsManifest(BaseModel):
 class ModelRecord(BaseModel):
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{1,63}$")
     backend: Literal["openai-compatible"] = "openai-compatible"
-    endpoint: str                       # loopback-only, validated at use
+    endpoint: str  # loopback-only, validated at use
     server_model_id: str | None = None  # what the server claims — user-declared
-    weights_dir: str | None = None      # if set, verified via manifest
+    weights_dir: str | None = None  # if set, verified via manifest
     weights_manifest: ModelWeightsManifest | None = None
-    generation: dict[str, Any] = Field(default_factory=lambda: {"temperature": 0.2, "max_tokens": 1024})
-    declared_notes: str | None = None   # user-declared metadata; never presented as verified
+    generation: dict[str, Any] = Field(
+        default_factory=lambda: {"temperature": 0.2, "max_tokens": 1024}
+    )
+    declared_notes: str | None = None  # user-declared metadata; never presented as verified
     registered_at: datetime = Field(default_factory=utcnow)
 
 
@@ -150,7 +157,7 @@ class ModelOutput(BaseModel):
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
     elapsed_s: float = 0.0
-    error: str | None = None            # set ⇒ model error case (recorded, never hidden)
+    error: str | None = None  # set ⇒ model error case (recorded, never hidden)
 
     @property
     def ok(self) -> bool:
@@ -165,10 +172,10 @@ class RunConfig(BaseModel):
     task_ids: list[str]
     generation: dict[str, Any]
     prompt_template_version: str
-    inference_endpoint: str | None = None   # loopback URL for sandbox runs; None for fixture runs
+    inference_endpoint: str | None = None  # loopback URL for sandbox runs; None for fixture runs
     execution_mode: Literal["sandbox", "fixture_replay"] = "sandbox"
     repeat_index: int = 0
-    is_fixture: bool = False            # true ⇒ demonstrative replay, never a real benchmark
+    is_fixture: bool = False  # true ⇒ demonstrative replay, never a real benchmark
     max_output_chars: int = 20000
 
 
@@ -183,7 +190,7 @@ class CaseResult(BaseModel):
     checks_total: int = 0
     failed_checks: list[str] = Field(default_factory=list)
     error_text: str | None = None
-    raw_output_ref: str | None = None   # relative artifact path
+    raw_output_ref: str | None = None  # relative artifact path
     raw_output_sha256: str | None = None
     extracted_code_sha256: str | None = None
     scored_detail: dict[str, Any] = Field(default_factory=dict)
@@ -222,7 +229,7 @@ class RunSummary(BaseModel):
     invalid_outputs: int = 0
     model_errors: int = 0
     sandbox_errors: int = 0
-    pass_rate: float | None = None       # denominator: tasks with valid final outcomes
+    pass_rate: float | None = None  # denominator: tasks with valid final outcomes
     pass_rate_numerator: int | None = None
     pass_rate_denominator: int | None = None
     completion_rate: float | None = None  # denominator: all suite tasks

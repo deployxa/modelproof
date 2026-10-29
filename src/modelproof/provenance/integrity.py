@@ -17,11 +17,11 @@ the gate (→ FAIL). If no weights directory was declared, the gate records
 NOT_RUN with the reason, and the verdict is capped at INSUFFICIENT_EVIDENCE —
 we will not certify results from an unverified artifact.
 """
+
 from __future__ import annotations
 
-from ..schemas import GateResult, RunStatus, Verdict
 from ..hashing import digest_obj
-
+from ..schemas import GateResult, RunStatus, Verdict
 
 MANDATORY_GATES = (
     "case_completeness",
@@ -39,7 +39,9 @@ def gate_evidence_integrity(verify: dict) -> GateResult:
         if ok
         else f"missing={verify.get('missing')} mismatched={verify.get('mismatched')} {verify.get('error') or ''}"
     )
-    return GateResult(gate="evidence_integrity", outcome="PASS" if ok else "FAIL", detail=detail.strip())
+    return GateResult(
+        gate="evidence_integrity", outcome="PASS" if ok else "FAIL", detail=detail.strip()
+    )
 
 
 def gate_case_completeness(cases_by_task: dict[str, str], required_tasks: list[str]) -> GateResult:
@@ -47,58 +49,72 @@ def gate_case_completeness(cases_by_task: dict[str, str], required_tasks: list[s
     infra = [t for t, s in cases_by_task.items() if s == "SANDBOX_ERROR"]
     if missing:
         return GateResult(
-            gate="case_completeness", outcome="FAIL",
+            gate="case_completeness",
+            outcome="FAIL",
             detail=f"missing terminal outcomes for {len(missing)} tasks: {missing[:8]}",
         )
     if infra:
         return GateResult(
-            gate="case_completeness", outcome="FAIL",
+            gate="case_completeness",
+            outcome="FAIL",
             detail=f"{len(infra)} cases failed on infrastructure (sandbox): {infra[:8]}",
         )
     return GateResult(
-        gate="case_completeness", outcome="PASS",
+        gate="case_completeness",
+        outcome="PASS",
         detail=f"all {len(required_tasks)} tasks have terminal, non-infrastructure outcomes",
     )
 
 
-def gate_sandbox_enforced(backend_name: str, verified_config: dict | None, is_fixture: bool) -> GateResult:
+def gate_sandbox_enforced(
+    backend_name: str, verified_config: dict | None, is_fixture: bool
+) -> GateResult:
     if is_fixture or backend_name == "fixture-replay":
         return GateResult(
-            gate="sandbox_enforced", outcome="WARN",
+            gate="sandbox_enforced",
+            outcome="WARN",
             detail="fixture replay: no code was executed in this run; outcomes are recorded dev-side fixtures",
             evidence_ref="config.execution_mode=fixture_replay",
         )
     if backend_name == "docker":
         if verified_config and verified_config.get("network_mode") == "none":
             return GateResult(
-                gate="sandbox_enforced", outcome="PASS",
+                gate="sandbox_enforced",
+                outcome="PASS",
                 detail="docker restrictions verified before start: network=none, cap-drop=ALL, "
-                       "no-new-privileges, read-only rootfs, non-root, memory/pids caps",
+                "no-new-privileges, read-only rootfs, non-root, memory/pids caps",
                 evidence_ref="docker inspect HostConfig",
             )
         return GateResult(
-            gate="sandbox_enforced", outcome="FAIL",
+            gate="sandbox_enforced",
+            outcome="FAIL",
             detail="docker executed but effective restrictions were not verified",
         )
     return GateResult(
-        gate="sandbox_enforced", outcome="FAIL",
+        gate="sandbox_enforced",
+        outcome="FAIL",
         detail=f"execution backend {backend_name!r} did not enforce sandbox restrictions",
     )
 
 
-def gate_local_only(endpoint_validated: bool, endpoint: str | None, *, is_fixture: bool = False) -> GateResult:
+def gate_local_only(
+    endpoint_validated: bool, endpoint: str | None, *, is_fixture: bool = False
+) -> GateResult:
     if is_fixture:
         return GateResult(
-            gate="local_only_inference", outcome="PASS",
+            gate="local_only_inference",
+            outcome="PASS",
             detail="fixture run used a scripted adapter inside the engine; no inference endpoint was contacted",
         )
     if endpoint_validated:
         return GateResult(
-            gate="local_only_inference", outcome="PASS",
+            gate="local_only_inference",
+            outcome="PASS",
             detail=f"inference endpoint {endpoint} validated as loopback; redirects re-validated per hop",
         )
     return GateResult(
-        gate="local_only_inference", outcome="FAIL",
+        gate="local_only_inference",
+        outcome="FAIL",
         detail="inference endpoint was not validated as loopback",
     )
 
@@ -106,30 +122,38 @@ def gate_local_only(endpoint_validated: bool, endpoint: str | None, *, is_fixtur
 def gate_model_identity(weights_manifest_hash: str | None, verification: dict | None) -> GateResult:
     if weights_manifest_hash is None:
         return GateResult(
-            gate="model_identity", outcome="NOT_RUN",
+            gate="model_identity",
+            outcome="NOT_RUN",
             detail="no model weights directory declared; served artifact identity is UNVERIFIED "
-                   "(server-reported model id is a claim, not evidence)",
+            "(server-reported model id is a claim, not evidence)",
         )
     if verification and verification.get("ok"):
         return GateResult(
-            gate="model_identity", outcome="PASS",
+            gate="model_identity",
+            outcome="PASS",
             detail=f"weights manifest verified: {weights_manifest_hash[:16]}…",
             evidence_ref="model weights manifest",
         )
     return GateResult(
-        gate="model_identity", outcome="FAIL",
+        gate="model_identity",
+        outcome="FAIL",
         detail=f"weights verification failed: mismatches={verification.get('mismatches') if verification else '?'} "
-               f"missing={verification.get('missing') if verification else '?'}",
+        f"missing={verification.get('missing') if verification else '?'}",
     )
 
 
-def assign_verdict(status: RunStatus, gates: list[GateResult], *, is_fixture: bool) -> tuple[Verdict, str]:
+def assign_verdict(
+    status: RunStatus, gates: list[GateResult], *, is_fixture: bool
+) -> tuple[Verdict, str]:
     by_name = {g.gate: g for g in gates}
 
     if status in (RunStatus.CANCELLED,):
         return Verdict.INCOMPLETE, "run was cancelled before all required cases completed"
     if status == RunStatus.FAILED:
-        return Verdict.FAIL, "run failed on an infrastructure error; no complete evidence set exists"
+        return (
+            Verdict.FAIL,
+            "run failed on an infrastructure error; no complete evidence set exists",
+        )
 
     completeness = by_name.get("case_completeness")
     if completeness and completeness.outcome == "FAIL":

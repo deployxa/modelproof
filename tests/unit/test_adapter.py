@@ -1,5 +1,6 @@
 """Inference adapter behavior: local-only requests, timeouts, malformed
 responses — using a recorded MockTransport so no real network is touched."""
+
 from __future__ import annotations
 
 import httpx
@@ -12,9 +13,15 @@ from modelproof.schemas import GenerationRequest, TaskCategory
 
 def _request(prompt="hello", task_id: str = "t1") -> GenerationRequest:
     return GenerationRequest(
-        run_id="r", task_id=task_id, category=TaskCategory.FUNCTION_IMPL, prompt=prompt,
-        prompt_template_version="v1", prompt_template_hash="x" * 64,
-        generation={"temperature": 0.2}, max_tokens=16, timeout_s=5,
+        run_id="r",
+        task_id=task_id,
+        category=TaskCategory.FUNCTION_IMPL,
+        prompt=prompt,
+        prompt_template_version="v1",
+        prompt_template_hash="x" * 64,
+        generation={"temperature": 0.2},
+        max_tokens=16,
+        timeout_s=5,
     )
 
 
@@ -37,22 +44,34 @@ def _patch_client(monkeypatch, routes):
 
 
 def test_generate_posts_to_loopback_only(monkeypatch):
-    seen = _patch_client(monkeypatch, [
-        (
-            "/v1/chat/completions",
-            lambda req: httpx.Response(200, json={
-                "model": "served-model-id",
-                "choices": [{"message": {"content": "def f():\n    pass\n"}, "finish_reason": "stop"}],
-                "usage": {"total_tokens": 5},
-            }),
-        ),
-    ])
+    seen = _patch_client(
+        monkeypatch,
+        [
+            (
+                "/v1/chat/completions",
+                lambda req: httpx.Response(
+                    200,
+                    json={
+                        "model": "served-model-id",
+                        "choices": [
+                            {
+                                "message": {"content": "def f():\n    pass\n"},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"total_tokens": 5},
+                    },
+                ),
+            ),
+        ],
+    )
     adapter = OpenAICompatibleAdapter("http://127.0.0.1:8080")
     out = adapter.generate(_request())
     assert out.ok and out.text.startswith("def f():")
     assert out.server_model_id == "served-model-id"
-    assert seen and all(url.startswith("http://127.0.0.1:8080") for url in seen), \
+    assert seen and all(url.startswith("http://127.0.0.1:8080") for url in seen), (
         "every request must target the validated loopback endpoint"
+    )
 
 
 def test_remote_endpoint_refused_before_any_request(monkeypatch):
@@ -63,10 +82,15 @@ def test_remote_endpoint_refused_before_any_request(monkeypatch):
 
 
 def test_redirect_escape_refused(monkeypatch):
-    seen = _patch_client(monkeypatch, [(
-        "/v1/chat/completions",
-        lambda req: httpx.Response(302, headers={"location": "http://10.9.9.9/steal"}),
-    )])
+    seen = _patch_client(
+        monkeypatch,
+        [
+            (
+                "/v1/chat/completions",
+                lambda req: httpx.Response(302, headers={"location": "http://10.9.9.9/steal"}),
+            )
+        ],
+    )
     adapter = OpenAICompatibleAdapter("http://127.0.0.1:8080")
     with pytest.raises(EndpointPolicyError):
         adapter.generate(_request())
@@ -74,26 +98,44 @@ def test_redirect_escape_refused(monkeypatch):
 
 
 def test_http_error_recorded_not_raised(monkeypatch):
-    _patch_client(monkeypatch, [(
-        "/v1/chat/completions", lambda req: httpx.Response(500, text="boom"),
-    )])
+    _patch_client(
+        monkeypatch,
+        [
+            (
+                "/v1/chat/completions",
+                lambda req: httpx.Response(500, text="boom"),
+            )
+        ],
+    )
     adapter = OpenAICompatibleAdapter("http://127.0.0.1:8080")
     out = adapter.generate(_request())
     assert not out.ok and "HTTP 500" in out.error
 
 
 def test_malformed_json_recorded(monkeypatch):
-    _patch_client(monkeypatch, [(
-        "/v1/chat/completions", lambda req: httpx.Response(200, text="{not json"),
-    )])
+    _patch_client(
+        monkeypatch,
+        [
+            (
+                "/v1/chat/completions",
+                lambda req: httpx.Response(200, text="{not json"),
+            )
+        ],
+    )
     out = OpenAICompatibleAdapter("http://127.0.0.1:8080").generate(_request())
     assert not out.ok and "malformed JSON" in out.error
 
 
 def test_missing_choices_recorded(monkeypatch):
-    _patch_client(monkeypatch, [(
-        "/v1/chat/completions", lambda req: httpx.Response(200, json={"choices": []}),
-    )])
+    _patch_client(
+        monkeypatch,
+        [
+            (
+                "/v1/chat/completions",
+                lambda req: httpx.Response(200, json={"choices": []}),
+            )
+        ],
+    )
     out = OpenAICompatibleAdapter("http://127.0.0.1:8080").generate(_request())
     assert not out.ok and "choices" in out.error
 

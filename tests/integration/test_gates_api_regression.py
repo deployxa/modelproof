@@ -3,6 +3,7 @@ API's engine state (observed defect: POST /gates/run left the worker thread's
 thread-local SQLite connection pointed at a deleted probe home, and subsequent
 /runs requests returned 500). Gates now execute in a subprocess; this test
 pins that contract."""
+
 from __future__ import annotations
 
 from pathlib import Path

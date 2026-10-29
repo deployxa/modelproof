@@ -4,6 +4,7 @@ Uses the stdlib sqlite3 driver; WAL journaling; foreign keys enforced. The
 runner is deliberately tiny and auditable — each migration is a versioned SQL
 file applied exactly once inside a transaction.
 """
+
 from __future__ import annotations
 
 import sqlite3

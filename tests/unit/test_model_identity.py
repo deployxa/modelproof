@@ -1,17 +1,18 @@
 """Model identity: weights manifests, symlink rejection, digest cache
 invalidation, and the declared-vs-verified distinction."""
+
 from __future__ import annotations
 
-import json
 import os
-import time
 from pathlib import Path
 
 import pytest
 
 from modelproof.errors import InvalidInputError
 from modelproof.models.registry import (
-    build_weights_manifest, register_model, verify_weights_manifest,
+    build_weights_manifest,
+    register_model,
+    verify_weights_manifest,
 )
 
 
@@ -41,7 +42,7 @@ def test_deterministic_and_stable(fake_model):
 def test_cache_reuse_and_invalidation(fake_model):
     first = build_weights_manifest(fake_model)
     assert first.cached is False
-    second = build_weights_manifest(fake_model)   # mtime unchanged → digests reused
+    second = build_weights_manifest(fake_model)  # mtime unchanged → digests reused
     assert second.cached is True and second.manifest_hash == first.manifest_hash
 
     # content change ⇒ (size, mtime) changes ⇒ cache invalidated
@@ -57,7 +58,9 @@ def test_verify_detects_modification(fake_model):
     (fake_model / "weights.gguf").write_bytes(b"\xff" * 4096)
     # the digest cache keys on (size, mtime_ns): same size ⇒ force mtime change
     st = os.stat(fake_model / "weights.gguf")
-    os.utime(fake_model / "weights.gguf", ns=(st.st_mtime_ns + 1_000_000, st.st_mtime_ns + 1_000_000))
+    os.utime(
+        fake_model / "weights.gguf", ns=(st.st_mtime_ns + 1_000_000, st.st_mtime_ns + 1_000_000)
+    )
     report = verify_weights_manifest(fake_model, m)
     assert report["ok"] is False and "weights.gguf" in report["mismatches"]
 
@@ -90,10 +93,15 @@ def test_empty_directory_rejected(tmp_path):
 
 
 def test_registration_records_declared_vs_verified(engine, fake_model):
-    record = register_model(engine.db, name="m1", endpoint="http://127.0.0.1:8080",
-                            weights_dir=str(fake_model), server_model_id="i-am-groot")
+    record = register_model(
+        engine.db,
+        name="m1",
+        endpoint="http://127.0.0.1:8080",
+        weights_dir=str(fake_model),
+        server_model_id="i-am-groot",
+    )
     assert record.weights_manifest is not None
-    assert record.server_model_id == "i-am-groot"   # recorded as a CLAIM, not evidence
+    assert record.server_model_id == "i-am-groot"  # recorded as a CLAIM, not evidence
 
     plain = register_model(engine.db, name="m2", endpoint="http://127.0.0.1:8081")
-    assert plain.weights_manifest is None           # identity unverified — honest default
+    assert plain.weights_manifest is None  # identity unverified — honest default

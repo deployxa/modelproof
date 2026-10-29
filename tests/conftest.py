@@ -1,5 +1,6 @@
 """Shared fixtures: isolated ModelProof home per test, engine factory, and a
 copy of the python-core suite with its recorded dev-side outcomes."""
+
 from __future__ import annotations
 
 import json
@@ -61,8 +62,8 @@ def fixture_outputs(tmp_path: Path) -> Path:
     path = tmp_path / "fixture-outputs.json"
     outputs = {
         "bf-mutable-default-arg": "def add_tag(event, tags=None):\n"
-                                  "    if tags is None:\n        tags = []\n"
-                                  "    tags.append(event)\n    return tags\n",
+        "    if tags is None:\n        tags = []\n"
+        "    tags.append(event)\n    return tags\n",
         "fi-roman-numerals": "def to_roman(n):\n    raise NotImplementedError\n",
         "eb-median-robust": "def median(values):\n    return sorted(values)[len(values) // 2]\n",
     }

@@ -16,18 +16,18 @@ Validation rejects: duplicate IDs, malformed manifests, missing files, path
 traversal, symlink escapes, corrupt digests, duplicate content, and private
 test leakage into model-facing payloads.
 """
+
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from ..errors import InvalidInputError
-from ..hashing import digest_obj, safe_relative_path, sha256_bytes, sha256_text, normalize_text
-from ..schemas import ProvenanceStatus, SuiteManifest, TaskCategory, TaskSpec
-from .leakage import check_leakage, LeakageReport
+from ..hashing import digest_obj, normalize_text, safe_relative_path, sha256_bytes, sha256_text
+from ..schemas import SuiteManifest, TaskSpec
+from .leakage import LeakageReport, check_leakage
 
 REQUIRED_TASK_FILES = ("task.yaml", "instruction.md", "starter.py", "solution.py")
 
@@ -109,7 +109,11 @@ def load_suite(root: Path) -> LoadedSuite:
         raise InvalidInputError(f"duplicate task IDs in suite.yaml: {dupes}")
 
     listed = set(ids)
-    on_disk = {p.name for p in (root / "tasks").glob("*") if p.is_dir()} if (root / "tasks").is_dir() else set()
+    on_disk = (
+        {p.name for p in (root / "tasks").glob("*") if p.is_dir()}
+        if (root / "tasks").is_dir()
+        else set()
+    )
     if listed != on_disk:
         missing = sorted(listed - on_disk)
         extra = sorted(on_disk - listed)
@@ -133,9 +137,13 @@ def load_suite(root: Path) -> LoadedSuite:
 
         meta = _read_yaml(tdir / "task.yaml")
         if meta.get("id") != entry.id:
-            raise InvalidInputError(f"task {entry.id!r}: task.yaml id mismatch ({meta.get('id')!r})")
+            raise InvalidInputError(
+                f"task {entry.id!r}: task.yaml id mismatch ({meta.get('id')!r})"
+            )
         if meta.get("category") and meta["category"] != entry.category.value:
-            raise InvalidInputError(f"task {entry.id!r}: category mismatch between task.yaml and suite.yaml")
+            raise InvalidInputError(
+                f"task {entry.id!r}: category mismatch between task.yaml and suite.yaml"
+            )
         try:
             spec = TaskSpec(
                 id=entry.id,
@@ -151,7 +159,8 @@ def load_suite(root: Path) -> LoadedSuite:
             raise InvalidInputError(f"task {entry.id!r}: invalid metadata: {e}") from e
 
         lt = LoadedTask(
-            spec=spec, dir=tdir,
+            spec=spec,
+            dir=tdir,
             instruction_path=tdir / "instruction.md",
             starter_path=tdir / "starter.py",
             solution_path=tdir / "solution.py",
@@ -182,7 +191,9 @@ def load_suite(root: Path) -> LoadedSuite:
     if leakage.exact_dupes or leakage.normalized_dupes or leakage.private_test_leaks:
         raise InvalidInputError(f"leakage/duplicate checks failed: {leakage.summary()}")
 
-    suite = LoadedSuite(manifest=manifest, root=root, tasks=tasks, content_hash=suite_hash, leakage=leakage)
+    suite = LoadedSuite(
+        manifest=manifest, root=root, tasks=tasks, content_hash=suite_hash, leakage=leakage
+    )
     return suite
 
 
@@ -193,7 +204,10 @@ def register_suite(db, suite: LoadedSuite, source_path: Path) -> None:
         "ON CONFLICT(suite_id, version) DO UPDATE SET path=excluded.path,"
         " content_hash=excluded.content_hash, manifest_json=excluded.manifest_json",
         (
-            m.suite_id, m.version, str(Path(source_path).resolve()), suite.content_hash,
+            m.suite_id,
+            m.version,
+            str(Path(source_path).resolve()),
+            suite.content_hash,
             m.model_dump_json(),
         ),
     )

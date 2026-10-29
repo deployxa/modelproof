@@ -12,11 +12,12 @@ sharded GGUF sets) into a deterministic manifest. Rules (spec §4):
   * the endpoint's self-reported model id is recorded as *server-claimed*,
     which is not evidence of which weights actually served the request.
 """
+
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -30,7 +31,6 @@ from ..hashing import (
 )
 from ..schemas import ModelRecord, ModelWeightsFile, ModelWeightsManifest
 from ..validation.endpoints import validate_endpoint
-
 
 CACHE_NAME = ".modelproof-hashes.json"
 
@@ -102,21 +102,26 @@ def build_weights_manifest(root: Path, *, use_cache: bool = True) -> ModelWeight
 
     files.sort(key=lambda f: f.path)
     total = sum(f.size for f in files)
-    manifest = {
+    manifest_dict = {
         "model_root": str(root),
         "files": [f.model_dump() for f in files],
         "total_bytes": total,
         "algorithm": "sha256",
     }
     return ModelWeightsManifest(
-        **manifest,
-        manifest_hash=digest_obj(manifest),
+        model_root=str(root),
+        files=files,
+        total_bytes=total,
+        algorithm="sha256",
+        manifest_hash=digest_obj(manifest_dict),
         cached=reused > 0,
         cache_note=(f"{reused}/{len(files)} digests reused from cache" if reused else None),
     )
 
 
-def verify_weights_manifest(root: Path, manifest: ModelWeightsManifest, *, use_cache: bool = True) -> dict:
+def verify_weights_manifest(
+    root: Path, manifest: ModelWeightsManifest, *, use_cache: bool = True
+) -> dict:
     """Recompute and compare. Returns {'ok': bool, 'mismatches': [...], 'missing': [...]}."""
     current = build_weights_manifest(root, use_cache=use_cache)
     prev = {f.path: f.sha256 for f in manifest.files}
@@ -162,9 +167,15 @@ def register_model(
         " weights_manifest_json=excluded.weights_manifest_json, generation_json=excluded.generation_json,"
         " declared_notes=excluded.declared_notes, registered_at=excluded.registered_at",
         (
-            record.name, record.backend, record.endpoint, record.server_model_id, record.weights_dir,
+            record.name,
+            record.backend,
+            record.endpoint,
+            record.server_model_id,
+            record.weights_dir,
             record.weights_manifest.model_dump_json() if record.weights_manifest else None,
-            json.dumps(record.generation), record.declared_notes, record.registered_at.isoformat(),
+            json.dumps(record.generation),
+            record.declared_notes,
+            record.registered_at.isoformat(),
         ),
     )
     db.commit()
@@ -178,11 +189,15 @@ def list_models(db) -> list[ModelRecord]:
         try:
             out.append(
                 ModelRecord(
-                    name=row["name"], backend=row["backend"], endpoint=row["endpoint"],
-                    server_model_id=row["server_model_id"], weights_dir=row["weights_dir"],
+                    name=row["name"],
+                    backend=row["backend"],
+                    endpoint=row["endpoint"],
+                    server_model_id=row["server_model_id"],
+                    weights_dir=row["weights_dir"],
                     weights_manifest=(
                         ModelWeightsManifest.model_validate_json(row["weights_manifest_json"])
-                        if row["weights_manifest_json"] else None
+                        if row["weights_manifest_json"]
+                        else None
                     ),
                     generation=json.loads(row["generation_json"]),
                     declared_notes=row["declared_notes"],

@@ -1,5 +1,6 @@
 """Prompt template management (spec §4: prompt template is part of the frozen
 run configuration and is hashed into the evidence)."""
+
 from __future__ import annotations
 
 from ..hashing import sha256_text
