@@ -15,6 +15,7 @@ What this script does (suite-development tooling, run once at authoring time):
      the explicitly-labeled fixture-replay backend and as Gate B dev evidence;
   4. finally loads the generated suite through the production engine loader.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -131,10 +132,17 @@ def run_checks_devside(code_text: str, checks_text: str, timeout_s: float) -> di
         try:
             proc = subprocess.run(
                 [sys.executable, str(HARNESS)],
-                capture_output=True, text=True, timeout=timeout_s, env=env, cwd=str(bundle),
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                env=env,
+                cwd=str(bundle),
             )
         except subprocess.TimeoutExpired:
-            return {"status": "TIMEOUT", "detail": f"killed after {timeout_s}s (dev-side validation)"}
+            return {
+                "status": "TIMEOUT",
+                "detail": f"killed after {timeout_s}s (dev-side validation)",
+            }
         parsed = parse_harness_output(proc.stdout)
         if parsed is None:
             return {
@@ -145,12 +153,24 @@ def run_checks_devside(code_text: str, checks_text: str, timeout_s: float) -> di
         result = parsed
         if result.get("import_error"):
             first = result["import_error"]
-            cls = "syntax_error" if any(k in first for k in ("SyntaxError", "IndentationError", "TabError")) else "import_error"
+            cls = (
+                "syntax_error"
+                if any(k in first for k in ("SyntaxError", "IndentationError", "TabError"))
+                else "import_error"
+            )
             return {"status": "FAILED", "class": cls, "detail": first}
         if result["total"] == 0:
-            return {"status": "FAILED", "class": "test_failure", "detail": "no check functions found"}
+            return {
+                "status": "FAILED",
+                "class": "test_failure",
+                "detail": "no check functions found",
+            }
         if result["passed"] == result["total"]:
-            return {"status": "PASSED", "checks_passed": result["passed"], "checks_total": result["total"]}
+            return {
+                "status": "PASSED",
+                "checks_passed": result["passed"],
+                "checks_total": result["total"],
+            }
         return {
             "status": "FAILED",
             "class": "test_failure",
@@ -186,12 +206,20 @@ def validate_devside() -> list[dict]:
             ok = (
                 (expectation == "must_pass" and status == "PASSED")
                 or (expectation == "must_fail" and status == "FAILED")
-                or (expectation == "must_fail_syntax" and status == "FAILED" and outcome.get("class") == "syntax_error")
+                or (
+                    expectation == "must_fail_syntax"
+                    and status == "FAILED"
+                    and outcome.get("class") == "syntax_error"
+                )
                 or (expectation == "record")
             )
             if not ok:
-                failures.append(f"{t['id']}/{label}: expected {expectation}, got {status} {outcome}")
-            records.append({"task_id": t["id"], "variant": label, "sha256": digest, "outcome": outcome})
+                failures.append(
+                    f"{t['id']}/{label}: expected {expectation}, got {status} {outcome}"
+                )
+            records.append(
+                {"task_id": t["id"], "variant": label, "sha256": digest, "outcome": outcome}
+            )
         print(f"[devval] {t['id']}: {len(variants)} variants validated")
     if failures:
         print("[devval] VALIDATION FAILURES:")
@@ -213,7 +241,10 @@ def write_records(records: list[dict]) -> None:
         ),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "generator": "scripts/gen_suite.py",
-        "records": {r["sha256"]: {"task_id": r["task_id"], "variant": r["variant"], "outcome": r["outcome"]} for r in records},
+        "records": {
+            r["sha256"]: {"task_id": r["task_id"], "variant": r["variant"], "outcome": r["outcome"]}
+            for r in records
+        },
     }
     RECORDS.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"[records] {len(records)} outcome records -> {RECORDS}")
@@ -228,9 +259,11 @@ def validate_with_engine() -> None:
     except ModelProofError as e:
         print(f"[engine] SUITE VALIDATION FAILED: {e}")
         sys.exit(1)
-    print(f"[engine] suite ok: {suite.manifest.suite_id} v{suite.manifest.version}, "
-          f"{len(suite.tasks)} tasks, content_hash={suite.content_hash[:16]}…, "
-          f"leakage: {suite.leakage.summary()}")
+    print(
+        f"[engine] suite ok: {suite.manifest.suite_id} v{suite.manifest.version}, "
+        f"{len(suite.tasks)} tasks, content_hash={suite.content_hash[:16]}…, "
+        f"leakage: {suite.leakage.summary()}"
+    )
 
 
 if __name__ == "__main__":

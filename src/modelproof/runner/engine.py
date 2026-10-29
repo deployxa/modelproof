@@ -465,12 +465,10 @@ class EvaluationEngine:
             self._set_status(
                 run_id, status, error="one or more cases failed on sandbox/infrastructure errors"
             )
-        else:
-            self._set_status(run_id, status)
 
         backend_name = backend.name
         verified = sandbox_verified_configs[0] if sandbox_verified_configs else None
-        return self.finalize_run(
+        res = self.finalize_run(
             run_id,
             suite,
             tasks,
@@ -479,7 +477,11 @@ class EvaluationEngine:
             identity_verification=identity_verification,
             manifest_hash=manifest_hash,
             sandbox_verified=verified,
+            status=status,
         )
+        if status != RunStatus.FAILED:
+            self._set_status(run_id, status, ended=True)
+        return res
 
     def _persist_case(
         self, run_id: str, case: CaseResult, started: float | None = None
@@ -701,11 +703,13 @@ class EvaluationEngine:
         identity_verification: dict | None,
         manifest_hash: str | None,
         sandbox_verified: dict | None = None,
+        status: RunStatus | None = None,
     ) -> dict:
         row = self.get_run_row(run_id)
         if row is None:
             raise InvalidInputError(f"run not found: {run_id}")
-        status = RunStatus(row["status"])
+        if status is None:
+            status = RunStatus(row["status"])
 
         # events + checksums + verification
         events = self.db.execute(
@@ -775,7 +779,7 @@ class EvaluationEngine:
             "config_hash": row["config_hash"],
             "prompt_template_hash": row["prompt_template_hash"],
             "started_at": row["started_at"],
-            "ended_at": row["ended_at"],
+            "ended_at": row["ended_at"] or utcnow_iso(),
             "environment": {
                 "python": sys.version.split()[0],
                 "platform": platform.platform(),
