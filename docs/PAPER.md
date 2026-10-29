@@ -2,7 +2,7 @@
 
 **Reagan Moseti**  
 *ModelProof Project*  
-`reaganmoseti@gmail.com` · `https://github.com/MosetiReagan/modelproof`
+`reaganmoseti@gmail.com` · `https://github.com/deployxa/modelproof`
 
 ---
 

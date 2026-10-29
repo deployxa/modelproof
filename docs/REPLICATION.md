@@ -9,7 +9,7 @@ This protocol guides third-party researchers and evaluators in independently rep
 ModelProof requires an isolated, Docker-capable Linux or macOS machine with Python 3.12+:
 
 ```bash
-git clone https://github.com/MosetiReagan/modelproof.git
+git clone https://github.com/deployxa/modelproof.git
 cd modelproof
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -89,6 +89,6 @@ Or open `web/verifier.html` in any web browser and drag-and-drop `qwen2.5-coder-
 ## 6. Publishing Verification Receipts
 
 To contribute your replication receipt:
-1. Fork `https://github.com/MosetiReagan/modelproof`.
+1. Fork `https://github.com/deployxa/modelproof`.
 2. Place your bundle in `replication/bundles/<your-handle>/`.
 3. Open a PR with your reproduction findings and sha256 checksum.

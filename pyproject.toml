@@ -40,9 +40,9 @@ dev = [
 modelproof = "modelproof.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/MosetiReagan/modelproof"
-Repository = "https://github.com/MosetiReagan/modelproof"
-Issues = "https://github.com/MosetiReagan/modelproof/issues"
+Homepage = "https://github.com/deployxa/modelproof"
+Repository = "https://github.com/deployxa/modelproof"
+Issues = "https://github.com/deployxa/modelproof/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

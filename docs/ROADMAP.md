@@ -8,7 +8,7 @@ ModelProof is a local-first, evidence-first evaluation lab for coding models. Th
 *Status: Complete*
 
 - [x] **GitHub Actions CI Workflow:** Matrix across Python 3.12 and 3.13 on `ubuntu-latest`. Enforces `ruff check`, `ruff format --check`, `mypy --strict`, and `pytest --cov=src/modelproof --cov-fail-under=85`.
-- [x] **Metadata & Identity Clean-Up:** Purged placeholder URLs (`https://localhost/ModelProof`); verified repository `https://github.com/MosetiReagan/modelproof` and author `Reagan Moseti`.
+- [x] **Metadata & Identity Clean-Up:** Purged placeholder URLs (`https://localhost/ModelProof`); verified repository `https://github.com/deployxa/modelproof` and author `Reagan Moseti`.
 - [x] **Dependency Pinning:** Pinned immutable dependency lockfile (`requirements-lock.txt`) with exact package versions and documented offline `--no-network` installation.
 - [x] **Docker Image Digest Pinning:** Sandbox defaults pinned by immutable digest (`python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159`).
 
