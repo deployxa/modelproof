@@ -1,0 +1,886 @@
+# ModelProof — Technical Specification v0.1
+
+Open-source evaluation engine + local web platform · Coding models · Local inference only
+
+Product objective: Build a reproducible, evidence-first testing system that evaluates coding models against executable software tasks and produces reports that another engineer can independently verify.
+
+The first release is not a general leaderboard, an AI judge, or a model-training framework. It is a tool for answering a narrower and more useful question:
+
+> Given a specific model artifact, a defined evaluation suite, and a controlled execution environment, what can we demonstrate that the model can actually do?
+
+The implementation must distinguish measured results from unverified claims. It must never invent benchmark scores, imply that a dataset is independent without evidence, or call a model production-ready merely because its tests pass.
+
+## 1. Product scope and release gates
+
+MVP — required
+
+Local model inference, Python coding tasks, executable tests, leakage checks, reproducible run manifests, statistical reporting, CLI, local web UI, and machine-verifiable evidence bundles.
+
+Security boundary
+
+Model inference stays on the local machine. Generated code runs inside a restricted, network-disabled sandbox. The web interface binds to loopback by default.
+
+Deferred
+
+Public leaderboards, hosted inference, multi-user accounts, training pipelines, distributed workers, automated model certification, and claims of benchmark independence without supporting evidence.
+
+### Initial evaluation suite
+
+Create an original, version-controlled suite of 24 Python coding tasks for the first release, divided into four categories:
+
+- 6 bug-fixing tasks
+- 6 function implementation tasks
+- 6 edge-case and boundary-condition tasks
+- 6 regression and test-driven repair tasks
+
+Each task must have a clear specification, starter code, visible task instructions, private acceptance tests, a timeout, and an explicit scoring rule. The suite is an initial engineering benchmark, not a statistically representative measure of coding ability across all programming tasks.
+
+All task content must have documented provenance. Do not copy benchmark questions from existing datasets unless their licenses and redistribution terms have been checked. Do not label the suite independent of training data unless that independence can actually be established.
+
+Twenty-four tasks are enough to verify the infrastructure and expose obvious strengths and weaknesses. They are not enough to support broad claims of model superiority.
+
+## 2. Architecture
+
+CLI / local web dashboard
+
+Configure models, select suites, start runs, inspect results
+
+Python evaluation engine
+
+Task runner · model adapter · scoring · statistics · integrity checks
+
+Local inference
+
+llama.cpp-compatible local endpoint
+
+Sandbox
+
+Isolated execution and private tests
+
+SQLite + evidence artifacts
+
+Immutable run records · hashes · per-task outcomes · JSON and HTML reports
+
+### Technology decisions
+
+| Layer             | Implementation                                                     |
+| ----------------- | ------------------------------------------------------------------ |
+| Language          | Python 3.12+                                                       |
+| Packaging         | `pyproject.toml`, installable CLI                                  |
+| CLI               | Typer                                                              |
+| API               | FastAPI                                                            |
+| UI                | React + TypeScript + Vite                                          |
+| Database          | SQLite with migrations                                             |
+| Validation        | Pydantic                                                           |
+| Model integration | Local OpenAI-compatible endpoint, with strict loopback validation  |
+| Code execution    | Docker sandbox with network disabled                               |
+| Statistics        | NumPy/SciPy or equivalent tested statistical routines              |
+| Testing           | pytest; frontend tests if a frontend is included                   |
+| Artifacts         | JSON manifests, JSONL case records, HTML report, SHA-256 checksums |
+
+The engine must be usable without the web interface. The CLI is the reference interface; the web platform consumes the same engine and result schemas rather than implementing separate scoring logic.
+
+Hardware constraint: Development should work on an Intel Mac without CUDA. Large model inference may be slow, but evaluation orchestration, validation, scoring, and report generation must not require a GPU.
+
+## 3. Evaluation protocol
+
+Every run follows a defined lifecycle:
+
+1. Validate inputs. Confirm suite schema, task IDs, local model configuration, runtime availability, and sandbox readiness.
+2. Freeze the run configuration. Record model identity, model file hashes, prompt template, generation settings, task suite version, runner version, and environment information.
+3. Check dataset integrity. Detect exact duplicate tasks, normalized duplicate content, shared task identifiers, and available overlap with known datasets. Record what was and was not checked.
+4. Generate outputs. Execute the model locally using a fixed task order or a recorded randomized order. Save raw outputs and inference metadata.
+5. Execute acceptance tests. Run each generated submission in an isolated, network-disabled environment with time, memory, process, and output limits.
+6. Score deterministically. Calculate task pass/fail, category outcomes, error types, aggregate pass rate, and uncertainty intervals.
+7. Verify evidence. Hash recorded artifacts, validate case completeness, detect missing or corrupted outputs, and refuse to finalize an apparently successful but incomplete run.
+8. Publish the report. Produce an evidence bundle with an explicit verdict, limitations, per-case outcomes, and instructions for independent verification.
+
+A run that fails midway must be marked `INCOMPLETE` or `FAILED`, never silently converted into a complete run. Resuming a run must preserve prior case records and clearly identify which cases were resumed.
+
+## 4. Model identity and provenance
+
+The model registry must distinguish between what a user declares and what ModelProof verifies.
+
+Every run records:
+
+- Model name and declared version.
+- Hash of every model weight file used, or a deterministic manifest of hashed files for a sharded model.
+- Hash of the adapter, if applicable.
+- Inference backend name and version.
+- Prompt template and generation parameters.
+- Operating system, Python version, relevant dependencies, and sandbox image identity.
+- Dataset and task-suite version, plus the content hash.
+- Start/end times, per-case status, and failure reasons.
+- Run configuration hash and evidence manifest hash.
+
+Use SHA-256. Hashes establish artifact identity, not correctness, authorship, or independence.
+
+For local model directories, hash the actual weight files and record their paths relative to the model root. Reject symlinks that escape the declared root. Never silently omit a file required for inference. Avoid forcing a complete rehash of huge model files on every launch if a securely verified cached digest can be reused; document how the cache is invalidated.
+
+For reproducibility, distinguish three concepts:
+
+1. Artifact integrity: recorded files match their hashes.
+2. Execution reproducibility: the same configuration can be rerun in a sufficiently equivalent environment.
+3. Benchmark independence: the test set is demonstrably separated from training and tuning data.
+
+These are different claims. ModelProof must not infer the third from the first two.
+
+## 5. Leakage and contamination safeguards
+
+Implement four separate checks:
+
+| Check                     | What it establishes                    | What it does not establish                         |
+| ------------------------- | -------------------------------------- | -------------------------------------------------- |
+| Exact hash duplicates     | Byte-identical artifacts               | Semantic independence                              |
+| Normalized text hashes    | Some formatting-insensitive duplicates | All paraphrases or translations                    |
+| Near-duplicate similarity | Potentially overlapping task content   | Proven training contamination                      |
+| Provenance audit          | Documented origins and access history  | That an unknown training corpus excludes the tasks |
+
+For the MVP, implement exact duplicate detection and normalized-content detection. Add a simple, tested similarity check if feasible, but disclose its limitations.
+
+The suite repository should separate development material from private acceptance tests. Private tests must not be included in model prompts or exposed in normal result exports. This is an access-control measure, not proof that a model has never seen those tests.
+
+A test pack may be marked `PROVENANCE_DOCUMENTED` when its origin is documented. Use a separate status such as `INDEPENDENCE_UNVERIFIED` unless independent provenance has actually been demonstrated.
+
+## 6. Scoring and statistical validity
+
+### Primary metric
+
+The primary metric is task pass rate:
+
+\\[ \text{Pass rate} = \frac{\text{tasks passed}}{\text{tasks with valid final outcomes}} \\]
+
+Report both the numerator and denominator. Also report the full-suite completion rate so that failures, timeouts, and missing outputs cannot disappear from the denominator.
+
+For comparisons, use the same task suite, task ordering protocol, inference budget, generation settings, sandbox, and retry policy. Record any deviations.
+
+### Required metrics
+
+- Overall task pass rate.
+- Pass rate for each of the four categories.
+- Number of passed, failed, timed-out, and invalid tasks.
+- Full-suite completion rate.
+- Wilson 95% confidence interval for a binary pass-rate estimate.
+- Failure breakdown: syntax error, test failure, timeout, resource limit, malformed output, model error, sandbox error.
+- Per-task results and runtime.
+- Repeat-run variability when repeat runs are actually conducted.
+
+A Wilson interval describes sampling uncertainty under its assumptions; it does not account for biased task selection, training contamination, prompt sensitivity, or a nonrepresentative benchmark. Repeated runs on the same 24 tasks do not turn those tasks into 48 or 72 independent tasks.
+
+Use deterministic acceptance tests as the primary scorer. Do not let a second language model decide whether generated code passes. Any optional heuristic or human review must be reported separately.
+
+### Verdicts
+
+Do not collapse every outcome into a single score or certification badge.
+
+| Verdict                 | Meaning                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| `PASS`                  | All required execution and evidence-integrity gates passed; this does not imply broad model superiority |
+| `FAIL`                  | A defined required gate failed                                                                          |
+| `INCOMPLETE`            | The run did not evaluate all required cases                                                             |
+| `INVALID`               | The run's evidence or configuration is internally inconsistent                                          |
+| `INSUFFICIENT_EVIDENCE` | The run is technically valid, but the evidence cannot support the requested conclusion                  |
+
+A successful infrastructure run can receive `PASS` even when a model performs poorly, provided the verdict is clearly described as execution/integrity status and not model capability certification. The report must show both the run verdict and the measured model outcomes.
+
+## 7. API and data contracts
+
+The API should be small and versioned. The same operations must be accessible through the CLI.
+
+| Endpoint                            | Purpose                                      |
+| ----------------------------------- | -------------------------------------------- |
+| `GET /api/v1/health`                | Report API, database, and runner readiness   |
+| `GET /api/v1/suites`                | List installed evaluation suites             |
+| `GET /api/v1/models`                | List locally registered model configurations |
+| `POST /api/v1/runs`                 | Validate and start a run                     |
+| `GET /api/v1/runs`                  | List runs and statuses                       |
+| `GET /api/v1/runs/{run_id}`         | Retrieve run summary and gate results        |
+| `GET /api/v1/runs/{run_id}/cases`   | Retrieve paginated per-case results          |
+| `GET /api/v1/runs/{run_id}/report`  | Retrieve the structured report               |
+| `POST /api/v1/runs/{run_id}/verify` | Recompute and verify evidence hashes         |
+
+Long-running evaluations must execute in a background worker. The API must never block a request until a whole benchmark finishes. Duplicate submission, cancellation, and crash recovery must have explicit semantics.
+
+### Core data entities
+
+- `ModelConfig`: local model location, backend, verified weight manifest, generation settings.
+- `SuiteManifest`: suite ID, version, task list, provenance declaration, content hash.
+- `EvaluationRun`: immutable run configuration, timestamps, status, verdict, and artifact references.
+- `CaseResult`: task ID, raw output reference, scoring details, runtime, status, and failure classification.
+- `EvidenceArtifact`: relative path, SHA-256, media type, size, and creation metadata.
+- `GateResult`: gate name, outcome, evidence reference, and failure explanation.
+
+Store raw model output separately from normalized scoring data. Keep a complete record of failed cases. Do not place private acceptance tests or sensitive model paths into public reports unnecessarily.
+
+## 8. CLI contract
+
+The MVP should provide these commands:
+
+```
+modelproof doctor
+modelproof suite list
+modelproof suite validate ./suites/python-core
+modelproof model inspect ./models/my-coder-model
+modelproof run --model local-coder --suite python-core
+modelproof run show <run-id>
+modelproof run verify <run-id>
+modelproof report export <run-id> --format json
+modelproof report export <run-id> --format html
+```
+
+These are required interface contracts, not claims that an implementation already exists.
+
+`doctor` must check Python dependencies, database migrations, the local inference endpoint, Docker availability, sandbox restrictions, and writable artifact storage. It must explain missing prerequisites and exit nonzero when a required safety dependency is unavailable.
+
+## 9. Web platform
+
+The local dashboard needs only four primary views initially:
+
+[I built an open-source LLM eval framework as a BCA student — hallucination detection, red-teaming, regression tracking - DEV Community](https://images.openai.com/static-rsc-4/hjnPSUSTeSAN9nU6mpQGdx9xkOFivoiyqO1IhRZSYsfQxjVGI36NORiA2B4Rafg3UmHXWcVeX_0Z0MPnJGrQw7D-d0KH82CiHijuJnQHk_JVanQ1YftmkCqIygQpvdSa42v6XGK27JCOCa1pGmkBzQhBrHwBzgU-XAWEsTf3Bi4?purpose=inline)
+
+Overview
+
+Recent runs, completion state, model identifiers, and integrity warnings.
+
+[Portfolio - Mahmoud Zalt | AI Architect & Tech Advisor](https://images.openai.com/static-rsc-4/MM71sHyAXLfw0hDfWtYbG7198WRYUgNZjczZvuF-KPH-A25MkMoz09jkdDtweXno0sYRFau_lweSD3IYVPv7suICBru_XEglIxa_XybFPHA0m-YenLmdP54ALPu8rbOZN8c3Zg2m0xAVtReaKQ6KaySUeg-pfZ0TQa_MMTqI1b0?purpose=inline)
+
+New evaluation
+
+Choose a registered local model, suite, and inference budget.
+
+[AI Agent Evaluation Platform | Test Agentic Systems with Openlayer](https://images.openai.com/static-rsc-4/C5QFxcHIARY3cemQJVg3SjFtf-3l9lwu0NcBO5ZaAXXTkUwlSfJeXP6bgB2GF18mt_Tq-UFMFwHrvTXqoQOgLsOM5H8SqcyyhhK9xdCZiRIbec05icMTsg8HFhJklrBKd_2YEIkZQXJkKwtSMvVFMsn1yUODx8kF1tLxRhHDF7I?purpose=inline)
+
+Run details
+
+Category metrics, individual case results, failure details, and gate outcomes.
+
+[Xybern · Provenance Vault](https://images.openai.com/static-rsc-4/WR4m5k-Wqibyi6MYfvuQArxwnQBbVMxGVsAbmvOHSl3wVhFHRqJhF4XswkL3_ag_6TbQe7V_tKIv9s7uOlPiMHZudmh5SPYZgVW2SXpMcVsnsyvNm2vdYrrdOfEWWJOAi0XT50-9hTzyvKB3cs4Ac_RiZ_1UUBgfPgLqibccNg4?purpose=inline)
+
+Evidence report
+
+Provenance, confidence intervals, artifact hashes, limitations, and verification status.
+
+The dashboard must visibly distinguish:
+
+- A run that is currently executing from a completed run.
+- Model performance from infrastructure integrity.
+- Verified facts from user-declared metadata.
+- Missing evidence from a successful verification.
+- A benchmark score from a general claim about model capability.
+
+No public leaderboard is needed in v0.1.
+
+## 10. Security requirements
+
+ModelProof evaluates potentially untrusted generated code. Treat this as a primary security boundary, not an optional hardening task.
+
+1. Inference stays local. The MVP accepts loopback inference endpoints only. Reject remote URLs, unexpected URL schemes, redirects to non-loopback addresses, and DNS-based bypasses. The evaluation engine must not transmit prompts, model outputs, or model files externally.
+2. Code runs in Docker. Disable network access; drop Linux capabilities; run as a non-root user; use a read-only root filesystem; apply CPU, memory, process, disk/output, and wall-clock limits; mount only required task files; and prohibit access to the Docker socket from the sandbox.
+3. No unsafe fallback. If the required isolation controls cannot be applied or verified, do not execute the submission. Report the failed gate.
+4. Web interface is local-only. Bind to `127.0.0.1` by default, disable permissive CORS, validate requests, and prevent path traversal and arbitrary file access.
+5. Protect evidence. Use controlled artifact paths, atomic writes, hash verification, bounded uploads, and safe HTML escaping. Never render model-generated HTML as trusted content.
+6. Do not claim perfect isolation. Docker hardening reduces risk but is not equivalent to a dedicated virtual machine or a formally verified sandbox.
+
+## 11. Repository structure
+
+```
+modelproof/
+├── pyproject.toml
+├── README.md
+├── LICENSE
+├── SECURITY.md
+├── CONTRIBUTING.md
+├── docs/
+│   ├── architecture.md
+│   ├── evaluation-methodology.md
+│   ├── provenance-policy.md
+│   ├── threat-model.md
+│   └── reproducibility.md
+├── src/modelproof/
+│   ├── cli.py
+│   ├── config.py
+│   ├── api/
+│   ├── models/
+│   ├── suites/
+│   ├── runner/
+│   ├── sandbox/
+│   ├── scoring/
+│   ├── statistics/
+│   ├── provenance/
+│   ├── artifacts/
+│   └── reports/
+├── suites/python-core/
+│   ├── suite.yaml
+│   ├── tasks/
+│   └── tests/
+├── web/
+│   ├── package.json
+│   └── src/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── security/
+│   └── fixtures/
+└── examples/
+    └── sample-report.json
+```
+
+Private acceptance tests must not be packaged in the public task-prompt bundle. The directory layout above is a target structure; the coding agent may adjust it if the final architecture is documented and all interfaces remain testable.
+
+## 12. Definition of done
+
+The coding agent must not call ModelProof ready simply because the application starts.
+
+The following acceptance gates are mandatory:
+
+| Gate                    | Required evidence                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Installation            | Clean environment installs the package and CLI                                                                                 |
+| Suite integrity         | Valid suite loads; duplicate IDs, malformed manifests, and invalid tasks are rejected                                          |
+| Local-only operation    | Remote inference URLs are rejected; an offline test run produces no external requests                                          |
+| Sandbox security        | A network attempt, resource exhaustion, prohibited filesystem access, and a timeout are tested                                 |
+| Correct scoring         | Known passing and failing submissions produce the expected outcomes                                                            |
+| Statistical correctness | Wilson intervals and aggregate metrics match independently computed reference values                                           |
+| Provenance              | Altered model files, task manifests, configurations, or evidence artifacts are detected when covered by integrity checks       |
+| Failure handling        | Missing outputs, corrupt artifacts, interrupted runs, and sandbox failures cannot produce a misleading successful final report |
+| Reproducibility         | A run can be independently verified from its evidence bundle, and repeated execution differences are disclosed                 |
+| UI and CLI              | Both use the same evaluation engine and return consistent results                                                              |
+| Documentation           | Setup, local model configuration, security limitations, report interpretation, and known gaps are documented                   |
+
+Production-readiness is not an MVP goal. The first goal is a credible local research tool that passes its acceptance gates and clearly reports what remains unverified.
+
+# 13. Coding-agent implementation prompt
+
+Use the following prompt in your coding agent from the repository root. It instructs the agent to inspect the actual workspace, implement the MVP, run tests, and report the evidence without fabricating results.
+
+# ModelProof v0.1 — Implementation and Independent Verification Task
+
+## Role
+
+Act as a senior Python systems engineer, ML evaluation researcher, application security engineer, and test engineer. Implement ModelProof, an open-source, local-first AI coding-model evaluation lab.
+
+You are responsible for producing working software, tests, documentation, and verifiable artifacts. You are not responsible for inventing benchmark results or making the project appear more complete than it is.
+
+## 1. Mission
+
+Build an evaluation engine and local web platform that:
+
+- Evaluates coding models through local inference only.
+- Runs executable Python coding tasks with deterministic acceptance tests.
+- Detects known forms of benchmark duplication and documents provenance limitations.
+- Records model, dataset, configuration, runtime, and evidence hashes.
+- Computes valid aggregate statistics and uncertainty intervals.
+- Exports JSON evidence bundles and HTML reports.
+- Provides a CLI and a local web dashboard using the same engine.
+- Refuses to issue a successful final run verdict when mandatory execution or integrity checks fail.
+
+The product name is ModelProof. The initial release is v0.1.
+
+## 2. Non-negotiable rules
+
+1. Inspect the repository, Git status, existing implementation, dependencies, and tests before changing files. Preserve useful existing work.
+2. Never fabricate test results, benchmark scores, model capabilities, dataset provenance, independent evaluation, or completed implementation.
+3. Do not claim a test passed unless you executed it or explicitly label it as unexecuted.
+4. Do not silently skip failing tests or weaken assertions to make the build green.
+5. Do not use an LLM as the primary acceptance-test scorer.
+6. Do not access hosted LLM APIs, transmit prompts externally, download model weights automatically, or introduce telemetry.
+7. Reject remote inference endpoints. ModelProof's inference target must be local.
+8. Never execute model-generated code directly on the host.
+9. Never fall back to unsafe execution if Docker or required sandbox restrictions are unavailable.
+10. Never expose private acceptance tests in prompts, ordinary result exports, or public artifacts.
+11. Do not claim that a benchmark is independent of model training data merely because it is newly written or has unique hashes.
+12. Do not make public leaderboard, certification, distributed execution, or model-training features prerequisites for this MVP.
+13. Document any deviation from this specification and its reason.
+
+## 3. Start with a repository audit
+
+Before implementation:
+
+- Identify the project root and existing source files.
+- Inspect the current architecture, package metadata, frontend, and CI.
+- Run existing tests and record the actual baseline.
+- Identify the installed Python and Node versions and available Docker runtime.
+- Record pre-existing failures separately from newly introduced failures.
+- Create a concise implementation plan and identify security-critical dependencies.
+
+Do not delete or replace an existing project simply to match the suggested directory layout. Extend or refactor it deliberately.
+
+## 4. Implement the evaluation engine
+
+Use Python 3.12 or later, a `pyproject.toml` package, Pydantic validation, Typer CLI, FastAPI, and SQLite. Use migrations for persistent schema changes.
+
+The engine must have explicit modules or equivalent boundaries for:
+
+- Model configuration and local inference.
+- Suite and task validation.
+- Evaluation orchestration.
+- Sandboxed execution.
+- Deterministic scoring.
+- Statistical calculations.
+- Provenance and integrity verification.
+- Artifact management.
+- Report generation.
+- API and CLI interfaces.
+
+Keep model execution, scoring, persistence, and presentation separate.
+
+### Local model integration
+
+Implement an adapter for a locally running OpenAI-compatible inference server, suitable for a local llama.cpp server.
+
+Requirements:
+
+- Accept loopback addresses only: IPv4 loopback, IPv6 loopback, and explicitly validated localhost.
+- Reject arbitrary remote hostnames, remote IP addresses, unsupported URL schemes, and redirects that escape the permitted local target.
+- Do not silently resolve or trust arbitrary DNS names.
+- Do not send requests to any external inference service.
+- Apply connection and response timeouts.
+- Record the backend and version, endpoint configuration, model identity, generation parameters, and inference errors.
+- Keep credentials and sensitive local configuration out of reports.
+- Make the adapter replaceable without rewriting the evaluation engine.
+
+The endpoint must not be assumed to identify the actual weights correctly. Require an explicit local model configuration and verified model-file manifest when claiming artifact identity.
+
+Support single-file and sharded model artifacts. Compute SHA-256 digests and use a deterministic manifest. Handle symlinks safely, reject files escaping the declared model root, and never silently omit required weights.
+
+If a reliable model hash cannot be established, record the reason and fail any gate that requires verified model identity.
+
+Do not download models automatically.
+
+## 5. Implement the Python coding suite
+
+Create 24 original, small Python tasks:
+
+- Six bug-fixing tasks.
+- Six function implementation tasks.
+- Six boundary-condition and edge-case tasks.
+- Six regression and test-driven repair tasks.
+
+Each task must have:
+
+- A stable unique ID.
+- A clear instruction.
+- Starter code or a defined input interface.
+- A declared task category.
+- Private deterministic acceptance tests.
+- A timeout and applicable resource limits.
+- A scoring rule.
+- A documented origin and license/provenance declaration.
+- A task content digest.
+
+Write real tasks with meaningful edge cases. Avoid placeholder tasks, duplicate tasks, trivial variations counted as independent evidence, and unsupported claims that these tasks represent general coding ability.
+
+Validate the suite manifest, schema, IDs, paths, categories, test files, and content hashes before any run starts.
+
+Keep acceptance tests separate from the model-facing task payload. Public suite artifacts may include task instructions and starter code, but must not accidentally package private tests.
+
+If the benchmark suite has not undergone a contamination audit against known training corpora, mark its independence as unverified.
+
+## 6. Implement sandbox execution
+
+Use Docker for executing generated code.
+
+The sandbox must use, where supported:
+
+- Network disabled.
+- Non-root execution.
+- Dropped Linux capabilities.
+- No-new-privileges.
+- Read-only root filesystem.
+- CPU and memory limits.
+- Process-count limits.
+- Wall-clock timeout.
+- Bounded output and temporary storage.
+- Minimal task-specific file mounts.
+- No Docker socket mount.
+- No host credential, home-directory, or arbitrary filesystem access.
+
+Use an explicit, documented execution image. Record its image identifier or digest when available. Do not pretend a mutable image tag provides immutable reproducibility.
+
+Validate the effective runtime configuration before executing any generated submission.
+
+If required restrictions cannot be applied or verified, refuse execution and return an explicit sandbox gate failure. Never fall back to `subprocess` execution on the host.
+
+Test timeout handling, resource exhaustion, filesystem restrictions, attempted network access, malformed output, and cleanup after failure.
+
+Treat Docker as risk reduction, not a perfect security boundary. Document the remaining container-escape risk and the additional isolation needed for genuinely hostile workloads.
+
+## 7. Implement scoring and statistics
+
+The primary metric is task pass rate:
+
+pass rate = passed tasks / tasks with valid final outcomes
+
+Also report full-suite completion rate, including missing, invalid, timed-out, and infrastructure-failed cases.
+
+Required metrics:
+
+- Overall task pass rate.
+- Numerator and denominator.
+- Category-level pass rates.
+- Number of passed and failed tasks.
+- Number of timeouts, invalid outputs, model errors, and infrastructure errors.
+- Full-suite completion rate.
+- Wilson 95% confidence interval for the binary task pass-rate estimate.
+- Per-task status, runtime, and scoring explanation.
+- Repeat-run variability only when actual repeat runs exist.
+
+Define the handling of missing outcomes explicitly. Do not silently exclude model failures or timeouts to improve the headline score. Keep infrastructure failures distinguishable from model failures, and do not publish a complete benchmark result until required cases have valid terminal outcomes.
+
+Use deterministic acceptance tests as the primary scorer. Do not substitute a model-generated judgment for a test result.
+
+Test statistical functions against independently calculated reference cases, including:
+
+- Zero successes.
+- All successes.
+- Intermediate success rates.
+- Small denominators.
+- Missing and invalid outcomes.
+- Invalid inputs and division-by-zero conditions.
+
+Clearly explain that confidence intervals do not correct for contamination, selection bias, benchmark representativeness, or prompt sensitivity.
+
+## 8. Implement provenance and leakage checks
+
+Record and verify:
+
+- Model weight hashes.
+- Adapter hashes when applicable.
+- Suite and task hashes.
+- Prompt-template hash.
+- Run configuration hash.
+- Relevant dependency and runtime versions.
+- Sandbox image identity.
+- Raw output artifact hashes.
+- Per-case scoring records.
+- Final evidence manifest.
+
+Implement exact duplicate detection and normalized-content duplicate detection. Implement a simple near-duplicate check if it can be tested and its limitations documented.
+
+Keep the following claims separate:
+
+- Artifact integrity verified.
+- Execution configuration recorded.
+- Execution reproducibility assessed.
+- Dataset provenance documented.
+- Training-data independence established or unverified.
+
+A hash proves file identity, not that the data is independent or correct.
+
+A provenance manifest must not be treated as proof merely because the user supplied it. Distinguish verified technical properties from user-declared statements.
+
+Detect corrupted or missing evidence. Provide a verification command that recomputes the recorded hashes and validates manifest consistency.
+
+Do not use signatures or attestation language unless a real signing and verification mechanism has been implemented.
+
+## 9. Implement run lifecycle and persistence
+
+Support these explicit run states:
+
+- QUEUED
+- RUNNING
+- COMPLETED
+- INCOMPLETE
+- FAILED
+- CANCELLED
+
+Use transactional database operations and atomic artifact writes where appropriate.
+
+Every run must have a unique ID and immutable initial configuration. Record the transition history or sufficient timestamps and event data to explain the final status.
+
+Handle application restarts, duplicate submission, cancellation, and partial completion explicitly.
+
+Do not allow an interrupted run to be reported as completed. Resuming a run must preserve previous results and clearly record resumed cases.
+
+Separate execution/integrity verdicts from model-performance metrics.
+
+Allowed run verdicts:
+
+- PASS
+- FAIL
+- INCOMPLETE
+- INVALID
+- INSUFFICIENT_EVIDENCE
+
+Document the exact gate rules for each verdict. A successful integrity check is not a model certification.
+
+## 10. Implement the CLI
+
+Provide the following commands, with working implementations and help text:
+
+```
+modelproof doctor
+modelproof suite list
+modelproof suite validate ./suites/python-core
+modelproof model inspect ./models/my-coder-model
+modelproof run --model local-coder --suite python-core
+modelproof run show <run-id>
+modelproof run verify <run-id>
+modelproof report export <run-id> --format json
+modelproof report export <run-id> --format html
+```
+
+Adjust argument names only when justified by the actual implementation, and document any differences.
+
+`doctor` must inspect the Python environment, package dependencies, database readiness, local inference endpoint, Docker availability, sandbox capabilities, and artifact-storage permissions.
+
+It must return actionable diagnostics and a nonzero exit code when required safety prerequisites are unavailable.
+
+Provide stable exit codes for invalid inputs, failed evaluations, integrity failures, and infrastructure errors.
+
+## 11. Implement the local web platform
+
+Build a React, TypeScript, and Vite dashboard with these views:
+
+1. Overview and recent evaluation runs.
+2. Local model and evaluation configuration.
+3. Run details, category results, and individual case outcomes.
+4. Evidence report, provenance, integrity verification, and limitations.
+
+Implement the FastAPI routes under `/api/v1` for health, suites, models, run creation, run listing, run details, case results, report retrieval, and evidence verification.
+
+Long-running evaluations must not block API requests. Use a controlled background worker and persistent run states.
+
+The web interface and CLI must use the same engine and scoring implementation.
+
+Bind the server to `127.0.0.1` by default. Add request validation, restrictive CORS, safe file access, and appropriate response-size limits. Do not expose arbitrary file paths or allow API requests to trigger arbitrary command execution.
+
+Escape all untrusted output. Never render generated HTML as trusted markup.
+
+## 12. Implement reports
+
+Every completed evaluation should generate:
+
+- A machine-readable run manifest.
+- A machine-readable summary.
+- Per-case JSONL results.
+- A human-readable HTML report.
+- An artifact checksum manifest.
+- A verification summary.
+- A limitations section.
+
+Include model identity, task-suite version, suite hash, inference settings, execution environment, task counts, category results, confidence intervals, run status, integrity gate outcomes, and provenance limitations.
+
+Keep raw model output available for inspection, but make public export of private or sensitive artifacts an explicit, controlled operation.
+
+Reports must distinguish:
+
+- Measured results.
+- User-declared metadata.
+- Independently verified technical properties.
+- Unknown or unverified claims.
+
+Never fill missing fields with invented values. Do not use example or fixture results as real benchmark results.
+
+## 13. Required tests
+
+Write and execute unit, integration, security, and end-to-end tests.
+
+At minimum, cover:
+
+**Input and suite validation**
+
+- Valid and invalid suite manifests.
+- Duplicate task IDs.
+- Missing test files.
+- Path traversal.
+- Symlink escape attempts.
+- Corrupt suite hashes.
+- Duplicate task content.
+
+**Model and network restrictions**
+
+- Valid local endpoint.
+- Remote hostname and IP rejection.
+- Unsupported URL schemes.
+- Redirects to non-local destinations.
+- Connection timeout.
+- Malformed model responses.
+- Missing model artifacts and hash mismatch.
+
+**Sandbox**
+
+- Correct execution of passing code.
+- Correct failure of failing code.
+- Syntax errors.
+- Infinite loop or timeout.
+- Memory and process limits.
+- Attempted network access.
+- Prohibited filesystem access.
+- Output overflow.
+- Cleanup following failure.
+- Refusal to execute when isolation is unavailable.
+
+**Scoring and statistics**
+
+- Correct aggregate metrics.
+- Correct category counts.
+- Wilson interval reference values.
+- Missing outcomes.
+- Incomplete suite handling.
+- Separation of model errors and infrastructure errors.
+
+**Evidence and persistence**
+
+- Recompute valid artifact hashes.
+- Detect modified artifacts.
+- Detect missing artifacts.
+- Reject inconsistent manifests.
+- Preserve failed case evidence.
+- Recover or mark interrupted runs.
+- Verify that incomplete runs cannot receive a completed verdict.
+
+**API and UI**
+
+- API schema and validation.
+- Background execution.
+- Run status transitions.
+- CLI/API result consistency.
+- Safe HTML rendering.
+- Local binding defaults.
+- Error and empty states.
+
+**Offline operation**
+
+- Run the test suite with external networking disabled where the environment permits.
+- Mock prohibited outbound requests and assert that no external inference calls occur.
+- Verify that tests do not automatically download models or datasets.
+
+Use mocks for model inference in automated tests. Use a real local model only when one is already available and an explicitly labelled integration test can be executed.
+
+## 14. Acceptance gates
+
+The MVP is accepted only if all mandatory gates pass.
+
+### Gate A — Build and installation
+
+The package installs in a clean environment, the CLI starts, and the API and frontend build successfully.
+
+### Gate B — Functional correctness
+
+A known passing submission passes, a known failing submission fails, and aggregate results match independent reference calculations.
+
+### Gate C — Local-only operation
+
+Remote inference endpoints are rejected, and offline tests demonstrate that the application does not make external inference calls.
+
+### Gate D — Sandbox safety
+
+Required restrictions are enforced, adversarial sandbox tests execute, and unsafe fallback execution is impossible through supported application paths.
+
+### Gate E — Evidence integrity
+
+Artifact modification and missing files are detected, manifests validate, and failed verification prevents a successful integrity verdict.
+
+### Gate F — Statistical correctness
+
+Confidence intervals and all published aggregate metrics are independently checked.
+
+### Gate G — Failure handling
+
+Interrupted runs, infrastructure failures, malformed responses, and incomplete cases cannot silently become completed results.
+
+### Gate H — Documentation
+
+A new developer can install the software, register a local model, run an evaluation, verify the report, and understand the security and statistical limitations.
+
+Do not waive a failed mandatory gate to declare the release ready.
+
+If an environment limitation prevents a gate from being executed, mark it BLOCKED or NOT_RUN, explain why, and do not report the overall release as fully accepted.
+
+## 15. Development sequence
+
+Work in small, verifiable phases.
+
+**Phase 1 — Foundation**
+
+- Repository audit.
+- Package and configuration structure.
+- Suite schema and validation.
+- SQLite models and migrations.
+- CLI skeleton and test framework.
+
+**Phase 2 — Evaluation core**
+
+- Local inference adapter.
+- Original coding task suite.
+- Sandboxed execution.
+- Deterministic scoring.
+- Per-case persistence.
+
+**Phase 3 — Integrity and statistics**
+
+- Model and suite hashes.
+- Provenance manifests.
+- Leakage checks.
+- Confidence intervals.
+- Evidence verification and verdict gates.
+
+**Phase 4 — Reports and API**
+
+- JSON evidence bundle.
+- HTML report.
+- FastAPI routes.
+- Background evaluation worker.
+- Crash and failure handling.
+
+**Phase 5 — Web interface**
+
+- Overview.
+- Run configuration.
+- Results and case details.
+- Evidence and verification page.
+
+**Phase 6 — Independent verification**
+
+- Run the full test suite.
+- Execute security tests.
+- Test clean installation and offline behavior.
+- Run a real local-model evaluation only if a suitable model is already available.
+- Verify generated artifacts from disk.
+- Produce the final evidence-backed acceptance report.
+
+After each phase, run the relevant tests before moving on. Fix regressions rather than accumulating known failures.
+
+## 16. Final delivery requirements
+
+Deliver:
+
+1. A working repository implementation.
+2. Installation and usage documentation.
+3. Architecture and threat-model documentation.
+4. Evaluation methodology and statistical assumptions.
+5. Suite provenance and licensing documentation.
+6. Automated tests.
+7. A sample report explicitly marked as a fixture if it does not come from a real evaluation.
+8. A final implementation report containing:
+   - Files and components actually implemented.
+   - Commands actually executed.
+   - Test counts and real pass/fail outcomes.
+   - Mandatory gate status.
+   - Known defects and limitations.
+   - Any blocked or unexecuted tests.
+   - Whether a real local-model evaluation was performed.
+   - The exact evidence artifacts produced and their locations.
+
+Do not claim that the model suite is independent, that the application is secure against all hostile code, or that ModelProof is production-ready without evidence appropriate to those claims.
+
+## Final instruction
+
+Begin by auditing the existing repository. Then implement the MVP end to end, prioritizing the evaluation engine, sandbox safety, evidence integrity, and statistical correctness over visual polish.
+
+Do not stop after generating a plan or scaffolding files. Continue through implementation, testing, debugging, and verification as far as the environment permits.
+
+The definition of success is not an impressive dashboard. It is a functioning evaluation tool that produces results other engineers can inspect, reproduce, and challenge—and that honestly refuses to claim more than its evidence supports.
+
+## 14. The release decision I recommend
+
+Don't start by evaluating DXA-LM or any other model you want to promote. First validate ModelProof itself with known synthetic fixtures and deliberately corrupted evidence.
+
+The first milestone should be:
+
+`MVP_ENGINE_ACCEPTED` only when the core evaluation, sandbox, statistics, and evidence-integrity gates have all passed. A blocked gate remains blocked; an unexecuted test remains unexecuted.
+
+After that, run a real local coding model as an explicitly labelled pilot. Use its results to validate the workflow, not to claim that the model is independently benchmarked.
+
+That sequence gives ModelProof a credible foundation before it evaluates anyone else's model—or your own.
