@@ -1,8 +1,0 @@
-{
-  "name": "modelproof-engine",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "bash start.sh"
-  }
-}

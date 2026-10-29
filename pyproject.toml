@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelproof"
+version = "0.2.0"
+description = "Local-first, evidence-first evaluation lab for local coding models. Reproducible runs, sandboxed execution, verifiable evidence bundles."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "ModelProof contributors" }]
+keywords = ["llm", "evaluation", "benchmark", "local-inference", "reproducibility"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "typer>=0.12",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2", "pytest-timeout>=2.3"]
+
+[project.scripts]
+modelproof = "modelproof.cli:main"
+
+[project.urls]
+Homepage = "https://localhost/ModelProof"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+modelproof = ["migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+timeout = 120
