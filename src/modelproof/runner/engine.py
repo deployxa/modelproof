@@ -28,6 +28,7 @@ from ..models.adapter import ModelAdapter, ScriptedAdapter, build_adapter
 from ..models.registry import get_model, verify_weights_manifest
 from ..provenance.integrity import (
     assign_verdict,
+    gate_canary_integrity,
     gate_case_completeness,
     gate_evidence_integrity,
     gate_local_only,
@@ -39,6 +40,7 @@ from ..runner.prompts import PROMPT_TEMPLATE_VERSION, build_prompt, template_has
 from ..sandbox.base import ExecutionBackend, SandboxLimits, UnavailableBackend
 from ..sandbox.docker_backend import DockerBackend
 from ..sandbox.fixture_backend import FixtureReplayBackend
+from ..sandbox.gvisor_backend import GVisorBackend
 from ..schemas import (
     CaseResult,
     CaseStatus,
@@ -48,7 +50,7 @@ from ..schemas import (
     RunStatus,
 )
 from ..scoring.scoring import classify, extract_code
-from ..statistics.stats import aggregate
+from ..statistics.stats import aggregate, decompose_repeat_run_variance, pass_at_k
 from ..suites.loader import LoadedSuite, load_suite, register_suite
 
 TERMINAL_CASE_STATUSES = {s.value for s in CaseStatus}
@@ -87,8 +89,11 @@ class EvaluationEngine:
         model_name: str,
         suite_path: Path,
         execution_mode: str = "sandbox",
+        sandbox_backend: str = "docker",
         task_ids: list[str] | None = None,
         repeat_index: int = 0,
+        samples_per_task: int = 1,
+        pass_k_list: list[int] | None = None,
         fixture_outputs_path: Path | None = None,
         resume_of: str | None = None,
     ) -> str:
@@ -141,6 +146,9 @@ class EvaluationEngine:
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             inference_endpoint=(None if is_fixture else model.endpoint),
             execution_mode=execution_mode,  # type: ignore[arg-type]
+            sandbox_backend=sandbox_backend,  # type: ignore[arg-type]
+            samples_per_task=samples_per_task,
+            pass_k_list=pass_k_list or [1],
             repeat_index=repeat_index,
             is_fixture=is_fixture,
         )
@@ -388,9 +396,14 @@ class EvaluationEngine:
             suite_fixtures = Path(config["suite_path"]) / "fixtures" / "recorded_outcomes.json"
             backend: ExecutionBackend = FixtureReplayBackend(suite_fixtures)
         else:
-            docker = DockerBackend()
-            ok, reason = docker.available()
-            backend = docker if ok else UnavailableBackend(reason)
+            sandbox_choice = config.get("sandbox_backend", "docker")
+            backend_impl: ExecutionBackend
+            if sandbox_choice == "gvisor":
+                backend_impl = GVisorBackend()
+            else:
+                backend_impl = DockerBackend()
+            ok, reason = backend_impl.available()
+            backend = backend_impl if ok else UnavailableBackend(reason)
             if not ok:
                 self._event(run_id, f"sandbox unavailable: {reason}", level="error")
                 self._set_status(
@@ -408,10 +421,16 @@ class EvaluationEngine:
                     manifest_hash=manifest_hash,
                 )
 
-        # ---- per-case loop ----------------------------------------------------
+        # ---- per-case loop (pass@k multi-sample protocol) -------------------
         done = self._terminal_statuses(run_id)
         sandbox_verified_configs: list[dict] = []
         cancelled = False
+        samples_per_task = int(config.get("samples_per_task", 1))
+        raw_pass_k = config.get("pass_k_list", [1])
+        pass_k_list = [int(k) for k in raw_pass_k if 0 < int(k) <= samples_per_task]
+        if not pass_k_list:
+            pass_k_list = [1]
+
         for index, task in enumerate(tasks):
             if self.cancel_requested(run_id):
                 cancelled = True
@@ -422,34 +441,73 @@ class EvaluationEngine:
                 continue  # resumed run: preserve prior terminal records
             self.db.execute("UPDATE runs SET heartbeat_at=? WHERE id=?", (utcnow_iso(), run_id))
             self.db.commit()
-            try:
-                case = self._execute_case(
-                    run_id,
-                    suite,
-                    task,
-                    adapter,
-                    backend,
-                    is_fixture,
-                    resumed=resuming,
-                    generation=config.get("generation") or {},
-                )
-            except Exception as exc:  # noqa: BLE001 — a case crash is an infra failure, not a hang
-                self._event(
-                    run_id,
-                    f"case {task.spec.id} crashed: {type(exc).__name__}: {exc}",
-                    level="error",
-                )
-                case = self._persist_case(
-                    run_id,
-                    CaseResult(
+
+            task_samples: list[CaseResult] = []
+            for s_idx in range(samples_per_task):
+                try:
+                    case_s = self._execute_case(
+                        run_id,
+                        suite,
+                        task,
+                        adapter,
+                        backend,
+                        is_fixture,
+                        resumed=resuming,
+                        generation=config.get("generation") or {},
+                        sample_index=s_idx,
+                    )
+                except Exception as exc:  # noqa: BLE001 — a case crash is an infra failure, not a hang
+                    self._event(
+                        run_id,
+                        f"case {task.spec.id} sample {s_idx} crashed: {type(exc).__name__}: {exc}",
+                        level="error",
+                    )
+                    case_s = CaseResult(
                         run_id=run_id,
                         task_id=task.spec.id,
                         category=task.spec.category,
                         status=CaseStatus.SANDBOX_ERROR,
                         is_infrastructure_failure=True,
-                        error_text=f"case execution crashed: {type(exc).__name__}: {exc}",
-                    ),
-                )
+                        error_text=f"case sample crashed: {type(exc).__name__}: {exc}",
+                    )
+                task_samples.append(case_s)
+
+            # Aggregate across samples for this task (pass@k)
+            c = sum(1 for s in task_samples if s.status == CaseStatus.PASSED)
+            n = samples_per_task
+            task_pass_at_k = {f"pass@{k}": pass_at_k(n, c, k) for k in pass_k_list if k <= n}
+
+            # Primary case: PASSED if any sample passed, otherwise first non-empty or sample 0
+            primary = next(
+                (s for s in task_samples if s.status == CaseStatus.PASSED), task_samples[0]
+            )
+            primary_scored = {
+                **(primary.scored_detail or {}),
+                "samples_per_task": n,
+                "samples_passed": c,
+                "pass_at_k": task_pass_at_k,
+                "sample_statuses": [s.status.value for s in task_samples],
+            }
+            case = self._persist_case(
+                run_id,
+                CaseResult(
+                    run_id=run_id,
+                    task_id=task.spec.id,
+                    category=task.spec.category,
+                    status=primary.status,
+                    is_infrastructure_failure=primary.is_infrastructure_failure,
+                    duration_ms=primary.duration_ms,
+                    checks_passed=primary.checks_passed,
+                    checks_total=primary.checks_total,
+                    failed_checks=primary.failed_checks,
+                    error_text=primary.error_text,
+                    raw_output_ref=primary.raw_output_ref,
+                    raw_output_sha256=primary.raw_output_sha256,
+                    extracted_code_sha256=primary.extracted_code_sha256,
+                    scored_detail=primary_scored,
+                    is_resumed=resuming,
+                ),
+            )
             verified_cfg = (case.scored_detail or {}).get("verified_sandbox")
             if verified_cfg:
                 sandbox_verified_configs.append(verified_cfg)
@@ -554,10 +612,14 @@ class EvaluationEngine:
         *,
         resumed: bool,
         generation: dict,
+        sample_index: int = 0,
     ) -> CaseResult:
         started = time.monotonic()
         self._event(
-            run_id, f"case start: {task.spec.id}", data={"category": task.spec.category.value}
+            run_id,
+            f"case start: {task.spec.id}"
+            + (f" [sample {sample_index}]" if sample_index > 0 else ""),
+            data={"category": task.spec.category.value, "sample": sample_index},
         )
 
         prompt, _th = build_prompt(task)
@@ -572,12 +634,47 @@ class EvaluationEngine:
             max_tokens=int(generation.get("max_tokens", 1024)),
             timeout_s=float(self.settings.inference_timeout_s),
         )
-        raw_ref = f"raw/{task.spec.id}.txt"
+        raw_ref = (
+            f"raw/{task.spec.id}_s{sample_index}.txt"
+            if sample_index > 0
+            else f"raw/{task.spec.id}.txt"
+        )
         self.store.write_text(run_id, raw_ref, "")
-        started = time.monotonic()
 
         def persist(case: CaseResult) -> CaseResult:
-            return self._persist_case(run_id, case, started)
+            duration_ms = (
+                case.duration_ms
+                if case.duration_ms is not None
+                else int((time.monotonic() - started) * 1000)
+            )
+            # Record individual sample attempt in task_samples
+            self.db.execute(
+                """INSERT INTO task_samples(
+                    run_id, task_id, sample_index, status, checks_passed, checks_total,
+                    duration_ms, raw_output_ref, raw_output_sha256, extracted_code_sha256, error_text
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(run_id, task_id, sample_index) DO UPDATE SET
+                    status=excluded.status, checks_passed=excluded.checks_passed,
+                    checks_total=excluded.checks_total, duration_ms=excluded.duration_ms,
+                    raw_output_ref=excluded.raw_output_ref, raw_output_sha256=excluded.raw_output_sha256,
+                    extracted_code_sha256=excluded.extracted_code_sha256, error_text=excluded.error_text
+                """,
+                (
+                    run_id,
+                    task.spec.id,
+                    sample_index,
+                    case.status.value,
+                    case.checks_passed,
+                    case.checks_total,
+                    duration_ms,
+                    case.raw_output_ref,
+                    case.raw_output_sha256,
+                    case.extracted_code_sha256,
+                    case.error_text,
+                ),
+            )
+            self.db.commit()
+            return case
 
         # 1) inference ---------------------------------------------------------
         try:
@@ -733,10 +830,12 @@ class EvaluationEngine:
         categories = {t.spec.id: t.spec.category.value for t in tasks}
         metrics = aggregate(statuses, categories)
 
+        prompts_checked = [build_prompt(t)[0] for t in tasks]
         gates = [
             gate_case_completeness(statuses, [t.spec.id for t in tasks]),
             gate_evidence_integrity(verify),
             gate_sandbox_enforced(backend_name, sandbox_verified, is_fixture),
+            gate_canary_integrity(prompts_checked),
             gate_local_only(
                 endpoint_validated=(
                     not is_fixture
@@ -766,6 +865,45 @@ class EvaluationEngine:
         )
         self.db.commit()
 
+        config = json.loads(row["config_json"]) if row["config_json"] else {}
+        samples_per_task = int(config.get("samples_per_task", 1))
+        raw_pass_k = config.get("pass_k_list", [1])
+        pass_k_list = [int(k) for k in raw_pass_k if 0 < int(k) <= samples_per_task]
+        if not pass_k_list:
+            pass_k_list = [1]
+
+        pass_k_aggregates: dict[str, float] = {}
+        for k in pass_k_list:
+            task_scores: list[float] = []
+            for r in case_rows:
+                sd = json.loads(r["scored_json"]) if r["scored_json"] else {}
+                pk = sd.get("pass_at_k", {})
+                val = pk.get(f"pass@{k}")
+                if val is not None:
+                    task_scores.append(float(val))
+                elif r["status"] == CaseStatus.PASSED.value:
+                    task_scores.append(1.0)
+                else:
+                    task_scores.append(0.0)
+            if task_scores:
+                pass_k_aggregates[f"pass@{k}"] = round(sum(task_scores) / len(task_scores), 4)
+
+        variance_decomp = None
+        if samples_per_task > 1:
+            matrix: list[list[int]] = []
+            for t in tasks:
+                s_rows = self.db.execute(
+                    "SELECT status FROM task_samples WHERE run_id=? AND task_id=? ORDER BY sample_index",
+                    (run_id, t.spec.id),
+                ).fetchall()
+                row_outcomes = [
+                    1 if sr["status"] == CaseStatus.PASSED.value else 0 for sr in s_rows
+                ]
+                if len(row_outcomes) == samples_per_task:
+                    matrix.append(row_outcomes)
+            if matrix:
+                variance_decomp = decompose_repeat_run_variance(matrix)
+
         summary = {
             "run_id": run_id,
             "status": status.value,
@@ -780,6 +918,9 @@ class EvaluationEngine:
             "prompt_template_hash": row["prompt_template_hash"],
             "started_at": row["started_at"],
             "ended_at": row["ended_at"] or utcnow_iso(),
+            "samples_per_task": samples_per_task,
+            "pass_at_k": pass_k_aggregates,
+            "variance_decomposition": variance_decomp,
             "environment": {
                 "python": sys.version.split()[0],
                 "platform": platform.platform(),

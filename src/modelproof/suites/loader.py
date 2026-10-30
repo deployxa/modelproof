@@ -54,6 +54,12 @@ class LoadedTask:
     def checks(self) -> str:
         return self.checks_path.read_text(encoding="utf-8")
 
+    @property
+    def has_canary(self) -> bool:
+        from .canary import has_canary
+
+        return has_canary(self.instruction)
+
 
 @dataclass
 class LoadedSuite:

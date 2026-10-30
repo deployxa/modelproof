@@ -43,9 +43,16 @@ SANDBOX_UID_GID = "65534:65534"  # nobody:nogroup
 class DockerBackend(ExecutionBackend):
     name = "docker"
 
-    def __init__(self, image: str = DEFAULT_IMAGE, docker_cmd: str = "docker"):
+    def __init__(
+        self,
+        image: str = DEFAULT_IMAGE,
+        docker_cmd: str = "docker",
+        runtime: str | None = None,
+    ) -> None:
         self.image = image
         self.docker_cmd = docker_cmd
+        self.runtime = runtime
+        self.last_verified_config: dict[str, object] | None = None
 
     # ------------------------------------------------------------- availability
     def available(self) -> tuple[bool, str]:
@@ -177,9 +184,15 @@ class DockerBackend(ExecutionBackend):
             "PYTHONDONTWRITEBYTECODE=1",
             "--env",
             "MP_BUNDLE_ROOT=/work",
-            self.image,
-            *bundle.command,
         ]
+        if self.runtime:
+            cmd.extend(["--runtime", self.runtime])
+        cmd.extend(
+            [
+                self.image,
+                *bundle.command,
+            ]
+        )
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if proc.returncode != 0:
             raise SandboxUnavailableError(
@@ -224,6 +237,10 @@ class DockerBackend(ExecutionBackend):
             for b in mounts
         ):
             problems.append(f"bundle mount missing: {mounts}")
+        if self.runtime:
+            actual_runtime = host.get("Runtime", "")
+            if actual_runtime != self.runtime:
+                problems.append(f"Runtime={actual_runtime!r} (want {self.runtime!r})")
         if problems:
             raise SandboxUnavailableError(
                 "effective sandbox configuration failed verification — refusing execution",
@@ -238,6 +255,7 @@ class DockerBackend(ExecutionBackend):
             "pids_limit": host.get("PidsLimit"),
             "user": user,
             "binds": mounts,
+            "runtime": host.get("Runtime") or "runc",
         }
 
     def _run_container(self, container: str, limits: SandboxLimits) -> ExecutionOutcome:

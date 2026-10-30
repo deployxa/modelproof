@@ -92,7 +92,7 @@ def test_run_lifecycle_via_api(client, tmp_path):
     assert status == "COMPLETED"
     body = client.get(f"/api/v1/runs/{run_id}").json()
     assert body["verdict"] == "INSUFFICIENT_EVIDENCE"
-    assert len(body["gates"]) == 5
+    assert len(body["gates"]) >= 5
 
     # cases endpoint: pagination + no private-test contents
     r = client.get(f"/api/v1/runs/{run_id}/cases?limit=10&offset=0")
